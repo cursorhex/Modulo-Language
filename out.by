@@ -1,18 +1,34 @@
-.{ .op = .Const, .operand = 10 }
-.{ .op = .Const, .operand = 20 }
-.{ .op = .Add, .operand = 0 }
-.{ .op = .Print, .operand = 0 }
-.{ .op = .Const, .operand = 30 }
-.{ .op = .Const, .operand = 3 }
-.{ .op = .Add, .operand = 0 }
-.{ .op = .Print, .operand = 0 }
-.{ .op = .Const, .operand = 2 }
-.{ .op = .Print, .operand = 0 }
-.{ .op = .Const, .operand = 10 }
-.{ .op = .Const, .operand = 20 }
-.{ .op = .Add, .operand = 0 }
-.{ .op = .Print, .operand = 0 }
-.{ .op = .Const, .operand = 30 }
-.{ .op = .Const, .operand = 3 }
-.{ .op = .Add, .operand = 0 }
-.{ .op = .Print, .operand = 0 }
+.{ .op = .Const, .operand = .{ .Int = 10 } }
+.{ .op = .SetVar, .operand = .{ .Str = { 120 } } }
+.{ .op = .Const, .operand = .{ .Int = 20 } }
+.{ .op = .SetConst, .operand = .{ .Str = { 121 } } }
+.{ .op = .Get, .operand = .{ .Str = { 120 } } }
+.{ .op = .Get, .operand = .{ .Str = { 121 } } }
+.{ .op = .Add, .operand = .{ .Int = 0 } }
+.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
+.{ .op = .ConstStr, .operand = .{ .Str = { 121 } } }
+.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
+.{ .op = .Get, .operand = .{ .Str = { 121 } } }
+.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
+.{ .op = .Const, .operand = .{ .Int = 30 } }
+.{ .op = .Mutate, .operand = .{ .Str = { 120 } } }
+.{ .op = .Get, .operand = .{ .Str = { 120 } } }
+.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
+.{ .op = .ConstStr, .operand = .{ .Str = { 120 } } }
+.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
+.{ .op = .Get, .operand = .{ .Str = { 120 } } }
+.{ .op = .Increment, .operand = .{ .Int = 1 } }
+.{ .op = .Mutate, .operand = .{ .Str = { 120 } } }
+.{ .op = .Get, .operand = .{ .Str = { 120 } } }
+.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
+.{ .op = .Get, .operand = .{ .Str = { 120 } } }
+.{ .op = .Increment, .operand = .{ .Int = 1 } }
+.{ .op = .Mutate, .operand = .{ .Str = { 120 } } }
+.{ .op = .Get, .operand = .{ .Str = { 120 } } }
+.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
+.{ .op = .Get, .operand = .{ .Str = { 120 } } }
+.{ .op = .Get, .operand = .{ .Str = { 120 } } }
+.{ .op = .Mul, .operand = .{ .Int = 0 } }
+.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
+.{ .op = .Const, .operand = .{ .Int = 2 } }
+.{ .op = .Mutate, .operand = .{ .Str = { 121 } } }

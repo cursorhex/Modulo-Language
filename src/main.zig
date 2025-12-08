@@ -1,8 +1,10 @@
 const std = @import("std");
+
 const lex = @import("lexer.zig").lex;
 const parser = @import("parser.zig");
 const codegen = @import("codegen.zig");
 const run = @import("vm.zig").run;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -30,10 +32,11 @@ pub fn main() !void {
     }
 
     const default_src: []const u8 =
-        \\print 1 + 2 * 3
+        \\var x = 10
+        \\io.print x
     ;
-    var src: []u8 = undefined;
 
+    var src: []u8 = undefined;
     if (input_file) |file_path| {
         var file = try std.fs.cwd().openFile(file_path, .{});
         defer file.close();
@@ -53,7 +56,7 @@ pub fn main() !void {
     defer parser.freeAst(ast, allocator);
 
     const bytecode = try codegen.codegen(ast, allocator);
-    defer allocator.free(bytecode);
+    defer codegen.freeBytecode(bytecode, allocator);
 
     if (bytecode_file) |file_path| {
         var file = try std.fs.cwd().createFile(file_path, .{});
@@ -65,5 +68,5 @@ pub fn main() !void {
         }
     }
 
-    run(bytecode);
+    try run(bytecode, allocator);
 }
