@@ -4,7 +4,17 @@ const lex = @import("lexer.zig").lex;
 const parser = @import("parser.zig");
 const codegen = @import("codegen.zig");
 const Ast = @import("ast.zig");
+fn bytesToHex(bytes: []const u8, allocator: std.mem.Allocator) ![]u8 {
+    const hex_chars = "0123456789abcdef";
+    var result = try allocator.alloc(u8, bytes.len * 2);
 
+    for (bytes, 0..) |byte, i| {
+        result[i * 2] = hex_chars[byte >> 4];
+        result[i * 2 + 1] = hex_chars[byte & 0xF];
+    }
+
+    return result;
+}
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -130,11 +140,17 @@ pub fn main() !void {
                         defer allocator.free(section_header);
                         try file.writeAll(section_header);
 
-                        for (bytecode) |instr| {
-                            const str = try std.fmt.allocPrint(allocator, "{any}\n", .{instr});
-                            defer allocator.free(str);
-                            try file.writeAll(str);
-                        }
+                        // NUOVO: Encodifica in formato compatto esadecimale
+                        const Bytecode = @import("bytecode.zig");
+                        const compact_bytes = try Bytecode.encodeCompact(bytecode, allocator);
+                        defer allocator.free(compact_bytes);
+
+                        // Converti bytes in stringa hex
+                        const hex_str = try bytesToHex(compact_bytes, allocator);
+                        defer allocator.free(hex_str);
+
+                        try file.writeAll(hex_str);
+                        try file.writeAll("\n");
                     }
 
                     vm.runWithEnv(bytecode, &global_env) catch |err| {

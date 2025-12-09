@@ -55,40 +55,40 @@ pub fn genStmt(stmt: *Ast.Stmt, out: *InstrArrayList) !void {
     switch (stmt.*) {
         .VarDecl => |var_decl| {
             try genExpr(var_decl.value, out);
-            if (var_decl.is_global) {
-                try out.append(.{ .op = .SetVarGlobal, .operand = .{ .Str = var_decl.name } });
+
+            if (var_decl.is_const) {
+                if (var_decl.is_global) {
+                    try out.append(.{ .op = .SetConstGlobal, .operand = .{ .Str = var_decl.name } });
+                } else {
+                    try out.append(.{ .op = .SetConst, .operand = .{ .Str = var_decl.name } });
+                }
             } else {
-                try out.append(.{ .op = .SetVar, .operand = .{ .Str = var_decl.name } });
-            }
-        },
-        .ConstDecl => |const_decl| {
-            try genExpr(const_decl.value, out);
-            if (const_decl.is_global) {
-                try out.append(.{ .op = .SetConstGlobal, .operand = .{ .Str = const_decl.name } });
-            } else {
-                try out.append(.{ .op = .SetConst, .operand = .{ .Str = const_decl.name } });
+                if (var_decl.is_global) {
+                    try out.append(.{ .op = .SetVarGlobal, .operand = .{ .Str = var_decl.name } });
+                } else {
+                    try out.append(.{ .op = .SetVar, .operand = .{ .Str = var_decl.name } });
+                }
             }
         },
         .Mutation => |mutation| {
             try genExpr(mutation.value, out);
             try out.append(.{ .op = .Mutate, .operand = .{ .Str = mutation.name } });
         },
-        .Expression => |expr| {
+        .ExprStmt => |expr| {
             try genExpr(expr, out);
+        },
+        .BytecodeExec => |block| {
+            const decoded = try Bytecode.decodeCompact(block.data, out.allocator);
+            defer out.allocator.free(decoded);
+
+            for (decoded) |instr| {
+                try out.append(instr);
+            }
         },
     }
 }
 
-// Add this function to free bytecode instructions that contain allocated strings
 pub fn freeBytecode(bytecode: []Bytecode.Instr, allocator: std.mem.Allocator) void {
-    for (bytecode) |instr| {
-        switch (instr.op) {
-            .Call => {
-                // Free the allocated call_name string
-                allocator.free(instr.operand.Str);
-            },
-            else => {},
-        }
-    }
+    // NON liberare instr.operand.Str: molte sono slice su memoria non di proprietà dell'allocator
     allocator.free(bytecode);
 }

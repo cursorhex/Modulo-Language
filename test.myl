@@ -3,8 +3,8 @@ section First{{
 }}
 
 section Second{{
-    (x): 9
-    io.prnt (x)
+    bytecode[code: {02020068690e0800696f2e7072696e74}]
+    io.print ciaoo
 }}
 
 program.run[

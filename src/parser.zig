@@ -12,6 +12,7 @@ const ParseError = error{
     InvalidVarDeclaration,
     InvalidConstDeclaration,
     InvalidCallExpression,
+    InvalidBytecodeBlock,
     OutOfMemory,
     InvalidCharacter,
     Overflow,
@@ -21,6 +22,7 @@ pub fn parse(tokens_slice: []const Token, allocator: std.mem.Allocator) ParseErr
     var p = Parser.init(tokens_slice, allocator);
     return try p.parse();
 }
+
 pub fn parseProgram(tokens_slice: []const Token, allocator: std.mem.Allocator) ParseError!Ast.Program {
     var p = Parser.init(tokens_slice, allocator);
     return try p.parseFullProgram();
@@ -32,18 +34,19 @@ pub fn freeAst(stmts: []*Ast.Stmt, allocator: std.mem.Allocator) void {
     }
     allocator.free(stmts);
 }
+
 pub fn freeStmt(stmt: *Ast.Stmt, allocator: std.mem.Allocator) void {
     switch (stmt.*) {
         .VarDecl => |var_decl| {
             freeExpr(var_decl.value, allocator);
         },
-        .ConstDecl => |const_decl| {
-            freeExpr(const_decl.value, allocator);
-        },
         .Mutation => |mutation| {
             freeExpr(mutation.value, allocator);
         },
-        .Expression => |expr| freeExpr(expr, allocator),
+        .ExprStmt => |expr| freeExpr(expr, allocator),
+        .BytecodeExec => |block| {
+            allocator.free(block.data);
+        },
     }
     allocator.destroy(stmt);
 }
@@ -76,6 +79,7 @@ fn freeExpr(expr: *Ast.Expr, allocator: std.mem.Allocator) void {
     }
     allocator.destroy(expr);
 }
+
 const Parser = struct {
     tokens: []const Token,
     allocator: std.mem.Allocator,
@@ -88,6 +92,7 @@ const Parser = struct {
             .current = 0,
         };
     }
+
     fn parseSection(self: *Parser) ParseError!*Ast.Section {
         try self.consume(.Section);
         try self.consume(.Identifier);
@@ -113,6 +118,7 @@ const Parser = struct {
         };
         return section;
     }
+
     fn parseProgramRun(self: *Parser) ParseError!*Ast.ProgramRun {
         try self.consume(.Program);
         try self.consume(.Dot);
@@ -125,11 +131,7 @@ const Parser = struct {
 
         var config = Ast.ProgramConfig{};
 
-        // Parse multiple config options
         while (!self.check(.RBracket)) {
-            // DEBUG: stampa il token corrente
-            //std.debug.print("Current token: {any}\n", .{self.peek()});
-
             if (self.check(.Order)) {
                 _ = self.advance();
                 try self.consume(.Colon);
@@ -144,7 +146,6 @@ const Parser = struct {
                             continue;
                         }
                     } else {
-                        std.debug.print("ERROR: Expected Identifier, got {any}\n", .{self.peek()});
                         return error.SyntaxError;
                     }
                 }
@@ -159,7 +160,6 @@ const Parser = struct {
                 } else if (self.match(.{.Release})) {
                     config.mode = .Release;
                 } else {
-                    std.debug.print("ERROR: Expected Debug or Release\n", .{});
                     return error.SyntaxError;
                 }
             } else if (self.check(.Optimize)) {
@@ -171,7 +171,6 @@ const Parser = struct {
                 } else if (self.match(.{.Size})) {
                     config.optimize = .Size;
                 } else {
-                    std.debug.print("ERROR: Expected Speed or Size\n", .{});
                     return error.SyntaxError;
                 }
             } else if (self.check(.Repeat)) {
@@ -189,7 +188,6 @@ const Parser = struct {
                 } else if (self.match(.{.False})) {
                     config.parallel = false;
                 } else {
-                    std.debug.print("ERROR: Expected True or False\n", .{});
                     return error.SyntaxError;
                 }
             } else if (self.check(.Timeout)) {
@@ -207,7 +205,6 @@ const Parser = struct {
                 } else if (self.match(.{.Stop})) {
                     config.on_error = .Stop;
                 } else {
-                    std.debug.print("ERROR: Expected Continue or Stop\n", .{});
                     return error.SyntaxError;
                 }
             } else if (self.check(.Trace)) {
@@ -219,15 +216,12 @@ const Parser = struct {
                 } else if (self.match(.{.False})) {
                     config.trace = false;
                 } else {
-                    std.debug.print("ERROR: Expected True or False\n", .{});
                     return error.SyntaxError;
                 }
             } else {
-                std.debug.print("ERROR: Unexpected token in program.run: {any}\n", .{self.peek()});
                 return error.SyntaxError;
             }
 
-            // Consume optional comma between config options
             _ = self.match(.{.Comma});
         }
 
@@ -240,6 +234,7 @@ const Parser = struct {
         };
         return program_run;
     }
+
     fn parseFullProgram(self: *Parser) ParseError!Ast.Program {
         const SectionArrayList = @import("custom_array_list.zig").CustomArrayList(*Ast.Section);
         var sections = SectionArrayList.init(self.allocator);
@@ -256,7 +251,6 @@ const Parser = struct {
             } else if (self.check(.Program)) {
                 program_run = try self.parseProgramRun();
             } else {
-                // NUOVO: permetti statement "loose"
                 try loose_statements.append(try self.parseStatement());
             }
         }
@@ -279,6 +273,11 @@ const Parser = struct {
     }
 
     fn parseStatement(self: *Parser) ParseError!*Ast.Stmt {
+        // NUOVO: bytecode block
+        if (self.check(.Bytecode)) {
+            return self.parseBytecodeBlock();
+        }
+
         // var(x): 10 o VAR(x): 10
         if (self.match(.{ .Var, .VarGlobal })) {
             const is_global = self.previous().t == .VarGlobal;
@@ -294,13 +293,12 @@ const Parser = struct {
         // (y): expr - mutation
         if (self.check(.LParen)) {
             const saved_pos = self.current;
-            _ = self.advance(); // consume '('
+            _ = self.advance();
             if (self.check(.Identifier)) {
-                _ = self.advance(); // consume identifier
+                _ = self.advance();
                 if (self.check(.RParen)) {
-                    _ = self.advance(); // consume ')'
+                    _ = self.advance();
                     if (self.check(.Colon)) {
-                        // It's a mutation
                         self.current = saved_pos;
                         return self.parseMutation();
                     }
@@ -311,8 +309,64 @@ const Parser = struct {
 
         const expr = try self.parseExpression();
         const stmt = try self.allocator.create(Ast.Stmt);
-        stmt.* = .{ .Expression = expr };
+        stmt.* = .{ .ExprStmt = expr };
         return stmt;
+    }
+
+    fn parseBytecodeBlock(self: *Parser) !*Ast.Stmt {
+        try self.consume(.Bytecode);
+        try self.consume(.LBracket);
+
+        while (self.peek().t != .Eof and !self.check(.RBracket)) {
+            if (self.peek().t == .Identifier) {
+                const key = self.peek().text;
+                if (std.mem.eql(u8, key, "code")) {
+                    self.current += 1;
+                    try self.consume(.Colon);
+                    try self.consume(.LBrace);
+
+                    // MODIFICATO: Accetta sia Identifier che Number per hex string
+                    var hex_str: []const u8 = undefined;
+                    if (self.check(.Identifier)) {
+                        hex_str = self.peek().text;
+                        self.current += 1;
+                    } else if (self.check(.Number)) {
+                        hex_str = self.peek().text;
+                        self.current += 1;
+                    } else {
+                        return error.InvalidBytecodeBlock;
+                    }
+
+                    try self.consume(.RBrace);
+
+                    const data = try hexToBytes(hex_str, self.allocator);
+
+                    try self.consume(.RBracket);
+
+                    const stmt = try self.allocator.create(Ast.Stmt);
+                    stmt.* = .{ .BytecodeExec = .{ .data = data } };
+                    return stmt;
+                }
+            }
+            self.current += 1;
+        }
+
+        return error.InvalidBytecodeBlock;
+    }
+
+    fn hexToBytes(hex: []const u8, allocator: std.mem.Allocator) ![]u8 {
+        if (hex.len % 2 != 0) return error.InvalidCharacter;
+
+        const len = hex.len / 2;
+        var result = try allocator.alloc(u8, len);
+
+        for (0..len) |i| {
+            const hi = try std.fmt.charToDigit(hex[i * 2], 16);
+            const lo = try std.fmt.charToDigit(hex[i * 2 + 1], 16);
+            result[i] = (hi << 4) | lo;
+        }
+
+        return result;
     }
 
     fn parseVarDeclaration(self: *Parser, is_global: bool) ParseError!*Ast.Stmt {
@@ -324,7 +378,7 @@ const Parser = struct {
         const value = try self.parseExpression();
 
         const stmt = try self.allocator.create(Ast.Stmt);
-        stmt.* = .{ .VarDecl = .{ .name = name_token.text, .value = value, .is_global = is_global } };
+        stmt.* = .{ .VarDecl = .{ .name = name_token.text, .value = value, .is_const = false, .is_global = is_global } };
         return stmt;
     }
 
@@ -337,9 +391,10 @@ const Parser = struct {
         const value = try self.parseExpression();
 
         const stmt = try self.allocator.create(Ast.Stmt);
-        stmt.* = .{ .ConstDecl = .{ .name = name_token.text, .value = value, .is_global = is_global } };
+        stmt.* = .{ .VarDecl = .{ .name = name_token.text, .value = value, .is_const = true, .is_global = is_global } };
         return stmt;
     }
+
     fn parseMutation(self: *Parser) ParseError!*Ast.Stmt {
         try self.consume(.LParen);
         try self.consume(.Identifier);
@@ -352,6 +407,7 @@ const Parser = struct {
         stmt.* = .{ .Mutation = .{ .name = name_token.text, .value = value } };
         return stmt;
     }
+
     fn parseExpression(self: *Parser) ParseError!*Ast.Expr {
         return self.parseAddition();
     }
@@ -399,25 +455,22 @@ const Parser = struct {
             return expr;
         }
 
-        // Handle (expr)++ for increment
         if (self.check(.LParen)) {
             const saved_pos = self.current;
-            _ = self.advance(); // consume '('
+            _ = self.advance();
 
             if (self.check(.Identifier)) {
                 const id_token = self.peek();
-                _ = self.advance(); // consume identifier
+                _ = self.advance();
 
                 if (self.match(.{.RParen})) {
                     if (self.match(.{.PlusPlus})) {
-                        // It's an increment: (x)++
                         const var_expr = try self.allocator.create(Ast.Expr);
                         var_expr.* = .{ .Var = id_token.text };
                         const inc_expr = try self.allocator.create(Ast.Expr);
                         inc_expr.* = .{ .Increment = var_expr };
                         return inc_expr;
                     } else {
-                        // Just (identifier) as a variable reference
                         const expr = try self.allocator.create(Ast.Expr);
                         expr.* = .{ .Var = id_token.text };
                         return expr;
@@ -425,9 +478,8 @@ const Parser = struct {
                 }
             }
 
-            // Not a special case, parse as grouped expression
             self.current = saved_pos;
-            _ = self.advance(); // consume '('
+            _ = self.advance();
             const expr = try self.parseExpression();
             try self.consume(.RParen);
             return expr;
@@ -441,13 +493,10 @@ const Parser = struct {
 
             var argument: *Ast.Expr = undefined;
 
-            // Check if there's a space followed by LParen -> io.print (x) evaluates expression
             if (self.match(.{.LParen})) {
-                // io.print (expression) - evaluate the expression
                 argument = try self.parseExpression();
                 try self.consume(.RParen);
             } else if (self.check(.Identifier)) {
-                // io.print x - treat x as a string literal
                 _ = self.advance();
                 const token = self.previous();
                 const str_expr = try self.allocator.create(Ast.Expr);
@@ -474,14 +523,6 @@ const Parser = struct {
 
     fn consume(self: *Parser, expected: TokenType) !void {
         if (self.peek().t != expected) {
-            // DEBUG
-            std.debug.print("\n=== PARSE ERROR ===\n", .{});
-            std.debug.print("Expected token: {s}\n", .{@tagName(expected)});
-            std.debug.print("Got token: {s}\n", .{@tagName(self.peek().t)});
-            std.debug.print("Token text: {any}\n", .{self.peek().text});
-            std.debug.print("Position: {d}/{d}\n", .{ self.current, self.tokens.len });
-            std.debug.print("==================\n", .{});
-
             return error.SyntaxError;
         }
         self.current += 1;

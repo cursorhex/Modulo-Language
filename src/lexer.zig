@@ -42,6 +42,7 @@ pub const TokenType = enum {
     Stop, // NUOVO
     True, // NUOVO
     False, // NUOVO
+    Bytecode,
     Eof,
 };
 pub const Token = struct {
@@ -88,12 +89,33 @@ pub fn lex(src: []const u8, allocator: std.mem.Allocator) ![]Token {
             else => |c| {
                 if (std.ascii.isDigit(c)) {
                     const start = i;
-                    while (i < src.len and std.ascii.isDigit(src[i])) : (i += 1) {}
-                    try tokens.append(.{
-                        .t = .Number,
-                        .text = src[start..i],
-                    });
-                    i -= 1;
+
+                    // Controlla se è un numero esadecimale (contiene a-f)
+                    var is_hex = false;
+                    var j = i;
+                    while (j < src.len and (std.ascii.isAlphanumeric(src[j]))) {
+                        if (src[j] >= 'a' and src[j] <= 'f') is_hex = true;
+                        if (src[j] >= 'A' and src[j] <= 'F') is_hex = true;
+                        j += 1;
+                    }
+
+                    if (is_hex) {
+                        // È una stringa hex, trattala come Identifier
+                        i = j;
+                        try tokens.append(.{
+                            .t = .Identifier,
+                            .text = src[start..i],
+                        });
+                        i -= 1;
+                    } else {
+                        // Numero normale
+                        while (i < src.len and std.ascii.isDigit(src[i])) : (i += 1) {}
+                        try tokens.append(.{
+                            .t = .Number,
+                            .text = src[start..i],
+                        });
+                        i -= 1;
+                    }
                 } else if (std.ascii.isAlphabetic(c)) {
                     const start = i;
                     // MODIFICATO: Permetti lettere, numeri e underscore
@@ -145,6 +167,8 @@ pub fn lex(src: []const u8, allocator: std.mem.Allocator) ![]Token {
                         TokenType.True
                     else if (std.mem.eql(u8, word, "false"))
                         TokenType.False
+                    else if (std.mem.eql(u8, word, "bytecode"))
+                        TokenType.Bytecode
                     else
                         TokenType.Identifier;
                     try tokens.append(.{ .t = tok, .text = word });

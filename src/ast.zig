@@ -11,10 +11,18 @@ pub const Expr = union(enum) {
 };
 
 pub const Stmt = union(enum) {
-    VarDecl: struct { name: []const u8, value: *Expr, is_global: bool },
-    ConstDecl: struct { name: []const u8, value: *Expr, is_global: bool },
-    Mutation: struct { name: []const u8, value: *Expr },
-    Expression: *Expr,
+    VarDecl: struct {
+        name: []const u8,
+        value: *Expr,
+        is_const: bool,
+        is_global: bool,
+    },
+    Mutation: struct {
+        name: []const u8,
+        value: *Expr,
+    },
+    ExprStmt: *Expr,
+    BytecodeExec: BytecodeBlock, // NUOVO
 };
 
 pub const Section = struct {
@@ -51,6 +59,11 @@ pub const ProgramRun = struct {
     order: [][]const u8,
     config: ProgramConfig,
 };
+pub const BytecodeBlock = struct {
+    data: []const u8, // Bytecode binario compatto
+};
+
+// Modifica Stmt per includere BytecodeExec
 
 pub const Program = struct {
     sections: []*Section,
