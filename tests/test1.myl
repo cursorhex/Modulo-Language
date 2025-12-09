@@ -1,0 +1,22 @@
+// CASE TEST //
+
+var(x): 10
+const(y): 20
+
+io.print ((x) + (y)) // 30
+
+io.print y           // y
+io.print (y)         // 20
+
+(x): 30             
+io.print (x)         // 30
+io.print x           // x
+
+(x): (x)++
+io.print (x)         // 31
+
+(x): (x)++
+io.print (x)         // 32
+io.print ((x) * (x)) // 1024
+
+//(y): 2               // errore non si puo mutare y

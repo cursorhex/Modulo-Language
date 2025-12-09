@@ -21,6 +21,10 @@ pub fn parse(tokens_slice: []const Token, allocator: std.mem.Allocator) ParseErr
     var p = Parser.init(tokens_slice, allocator);
     return try p.parse();
 }
+pub fn parseProgram(tokens_slice: []const Token, allocator: std.mem.Allocator) ParseError!Ast.Program {
+    var p = Parser.init(tokens_slice, allocator);
+    return try p.parseFullProgram();
+}
 
 pub fn freeAst(stmts: []*Ast.Stmt, allocator: std.mem.Allocator) void {
     for (stmts) |stmt| {
@@ -28,8 +32,7 @@ pub fn freeAst(stmts: []*Ast.Stmt, allocator: std.mem.Allocator) void {
     }
     allocator.free(stmts);
 }
-
-fn freeStmt(stmt: *Ast.Stmt, allocator: std.mem.Allocator) void {
+pub fn freeStmt(stmt: *Ast.Stmt, allocator: std.mem.Allocator) void {
     switch (stmt.*) {
         .VarDecl => |var_decl| {
             freeExpr(var_decl.value, allocator);
@@ -83,6 +86,98 @@ const Parser = struct {
             .tokens = tokens,
             .allocator = allocator,
             .current = 0,
+        };
+    }
+    fn parseSection(self: *Parser) ParseError!*Ast.Section {
+        try self.consume(.Section);
+        try self.consume(.Identifier);
+        const section_name = self.previous().text;
+
+        try self.consume(.LBrace);
+        try self.consume(.LBrace);
+
+        var statements = StmtArrayList.init(self.allocator);
+        defer statements.deinit();
+
+        while (!self.check(.RBrace)) {
+            try statements.append(try self.parseStatement());
+        }
+
+        try self.consume(.RBrace);
+        try self.consume(.RBrace);
+
+        const section = try self.allocator.create(Ast.Section);
+        section.* = .{
+            .name = section_name,
+            .statements = try statements.toOwnedSlice(),
+        };
+        return section;
+    }
+    fn parseProgramRun(self: *Parser) ParseError!*Ast.ProgramRun {
+        try self.consume(.Program);
+        try self.consume(.Dot);
+        try self.consume(.Run);
+        try self.consume(.LBracket);
+
+        const StringArrayList = @import("custom_array_list.zig").CustomArrayList([]const u8);
+        var order_names = StringArrayList.init(self.allocator);
+        defer order_names.deinit();
+
+        // Parse order: { name1, name2, ... }
+        if (self.check(.Order)) { // CAMBIATO: da .Identifier a .Order
+            _ = self.advance();
+            try self.consume(.Colon);
+            try self.consume(.LBrace);
+
+            while (!self.check(.RBrace)) {
+                if (self.check(.Identifier)) {
+                    _ = self.advance();
+                    try order_names.append(self.previous().text);
+
+                    if (self.match(.{.Comma})) {
+                        continue;
+                    }
+                } else {
+                    return error.SyntaxError;
+                }
+            }
+
+            try self.consume(.RBrace);
+        }
+
+        try self.consume(.RBracket);
+
+        const program_run = try self.allocator.create(Ast.ProgramRun);
+        program_run.* = .{
+            .order = try order_names.toOwnedSlice(),
+        };
+        return program_run;
+    }
+    fn parseFullProgram(self: *Parser) ParseError!Ast.Program {
+        const SectionArrayList = @import("custom_array_list.zig").CustomArrayList(*Ast.Section);
+        var sections = SectionArrayList.init(self.allocator);
+        defer sections.deinit();
+
+        var loose_statements = StmtArrayList.init(self.allocator);
+        defer loose_statements.deinit();
+
+        var program_run: ?*Ast.ProgramRun = null;
+
+        while (!self.isAtEnd()) {
+            if (self.check(.Section)) {
+                try sections.append(try self.parseSection());
+            } else if (self.check(.Program)) {
+                program_run = try self.parseProgramRun();
+            } else {
+                // NUOVO: permetti statement "loose"
+                try loose_statements.append(try self.parseStatement());
+            }
+        }
+
+        return Ast.Program{
+            .sections = try sections.toOwnedSlice(),
+            .loose_statements = try loose_statements.toOwnedSlice(),
+            .program_run = program_run,
         };
     }
 

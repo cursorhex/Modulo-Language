@@ -11,13 +11,22 @@ pub const TokenType = enum {
     Slash,
     LParen,
     RParen,
+    LBrace, // {
+    RBrace, // }
+    LBracket, // [
+    RBracket, // ]
     Colon,
+    Comma,
     Var,
     Const,
-    VarGlobal, // VAR maiuscolo
-    ConstGlobal, // CONST maiuscolo
+    VarGlobal,
+    ConstGlobal,
     Dot,
     PlusPlus,
+    Section, // section keyword
+    Program, // program keyword
+    Run, // run keyword
+    Order, // order keyword
     Eof,
 };
 
@@ -36,7 +45,12 @@ pub fn lex(src: []const u8, allocator: std.mem.Allocator) ![]Token {
             ' ', '\n', '\t', '\r' => continue,
             '(' => try tokens.append(.{ .t = .LParen, .text = src[i .. i + 1] }),
             ')' => try tokens.append(.{ .t = .RParen, .text = src[i .. i + 1] }),
+            '{' => try tokens.append(.{ .t = .LBrace, .text = src[i .. i + 1] }),
+            '}' => try tokens.append(.{ .t = .RBrace, .text = src[i .. i + 1] }),
+            '[' => try tokens.append(.{ .t = .LBracket, .text = src[i .. i + 1] }),
+            ']' => try tokens.append(.{ .t = .RBracket, .text = src[i .. i + 1] }),
             ':' => try tokens.append(.{ .t = .Colon, .text = src[i .. i + 1] }),
+            ',' => try tokens.append(.{ .t = .Comma, .text = src[i .. i + 1] }),
             '+' => {
                 if (i + 1 < src.len and src[i + 1] == '+') {
                     try tokens.append(.{ .t = .PlusPlus, .text = src[i .. i + 2] });
@@ -78,6 +92,14 @@ pub fn lex(src: []const u8, allocator: std.mem.Allocator) ![]Token {
                         TokenType.VarGlobal
                     else if (std.mem.eql(u8, word, "CONST"))
                         TokenType.ConstGlobal
+                    else if (std.mem.eql(u8, word, "section"))
+                        TokenType.Section
+                    else if (std.mem.eql(u8, word, "program"))
+                        TokenType.Program
+                    else if (std.mem.eql(u8, word, "run"))
+                        TokenType.Run
+                    else if (std.mem.eql(u8, word, "order"))
+                        TokenType.Order
                     else
                         TokenType.Identifier;
                     try tokens.append(.{ .t = tok, .text = word });
