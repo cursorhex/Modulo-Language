@@ -66,14 +66,32 @@ const(y): 30
 // (y): 40 // ❌ ERRORE: non puoi mutare una costante
 ```
  
+#### Variabili e costanti Locali e Globali
 
-#### Variabili Globali
-```
-VAR(globalCounter): 0 // Variabile globale mutabile  
-CONST(PI): 3.14159 // Costante globale immutabile
-```
- 
+**Variabili/Costanti Locali (`var`, `const`):**
+- Esistono **solo all'interno della sezione** in cui sono dichiarate
+- Vengono **eliminate automaticamente** alla fine della sezione
+- **NON sono accessibili** da altre sezioni
 
+**Variabili Globali (`VAR`, `CONST`):**
+- Esistono per **tutta l'esecuzione del programma**
+- Sono **accessibili da tutte le sezioni**
+- Persistono tra chiamate multiple alla stessa sezione
+
+**Esempio:**
+```
+section A{{
+var(x): 10 // Locale - muore dopo section A
+VAR(y): 20 // Globale - vive per sempre
+}}
+
+section B{{
+io.print (x) // ❌ ERRORE: x non esiste qui!
+io.print (y) // ✅ OK: y è globale
+}}
+
+program.run [order: {A, B}]
+```
 ### Operatori Aritmetici
 
 ```
@@ -182,7 +200,7 @@ program.run [
     repeat: 5, // Ripete N volte  
     parallel: true, // Esegue in parallelo  
     timeout: 1000, // Timeout in millisecondi  
-    on_error: continue, // continue | stop  
+    onerror: continue, // continue | stop  
     trace: false // Stampa debug info  
 ]
 
@@ -280,6 +298,7 @@ io.print (undefinedVar) // ❌ Error: Variable 'undefinedVar' not found
 3. **Usa nomi descrittivi** - `userAge` è meglio di `x`  
 4. **Commenta il codice complesso** - Aiuta te stesso e gli altri  
 5. **Variabili globali con parsimonia** - Usa `VAR`/`CONST` solo quando necessario
+6.  **Distingui locale da globale** - Usa `var`/`const` per scope limitato, `VAR`/`CONST` per condividere tra sezioni
 
 ---
 

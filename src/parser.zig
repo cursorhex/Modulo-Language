@@ -128,7 +128,7 @@ const Parser = struct {
         // Parse multiple config options
         while (!self.check(.RBracket)) {
             // DEBUG: stampa il token corrente
-            std.debug.print("Current token: {any}\n", .{self.peek()});
+            //std.debug.print("Current token: {any}\n", .{self.peek()});
 
             if (self.check(.Order)) {
                 _ = self.advance();
@@ -472,12 +472,19 @@ const Parser = struct {
         return error.ExpectedExpression;
     }
 
-    fn consume(self: *Parser, token_type: TokenType) ParseError!void {
-        if (self.check(token_type)) {
-            _ = self.advance();
-            return;
+    fn consume(self: *Parser, expected: TokenType) !void {
+        if (self.peek().t != expected) {
+            // DEBUG
+            std.debug.print("\n=== PARSE ERROR ===\n", .{});
+            std.debug.print("Expected token: {s}\n", .{@tagName(expected)});
+            std.debug.print("Got token: {s}\n", .{@tagName(self.peek().t)});
+            std.debug.print("Token text: {any}\n", .{self.peek().text});
+            std.debug.print("Position: {d}/{d}\n", .{ self.current, self.tokens.len });
+            std.debug.print("==================\n", .{});
+
+            return error.SyntaxError;
         }
-        return error.SyntaxError;
+        self.current += 1;
     }
 
     fn match(self: *Parser, comptime types_tuple: anytype) bool {

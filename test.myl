@@ -1,23 +1,13 @@
-section Init{{
-   VAR(counter): 0     // Locale - sarà rimossa dopo Init
+section First{{
+    VAR(x): 1
 }}
 
-section Increment{{
-   (counter): (counter)++   // ❌ ERRORE: counter non esiste più!
-   io.print (counter)
+section Second{{
+    (x): 9
+    io.prnt (x)
 }}
 
-section Final{{
-   io.print Done
-}}
-
-program.run [
-   order: {Init, Increment, Final},
-   mode: debug,
-   optimize: speed,
-   repeat: 3,
-   parallel: false,
-   timeout: 5000,
-   onerror: continue,
-   trace: true
+program.run[
+    order: {First, Second},
+    
 ]

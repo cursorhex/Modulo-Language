@@ -1,34 +1,10 @@
-.{ .op = .Const, .operand = .{ .Int = 10 } }
-.{ .op = .SetVar, .operand = .{ .Str = { 120 } } }
-.{ .op = .Const, .operand = .{ .Int = 20 } }
-.{ .op = .SetConst, .operand = .{ .Str = { 121 } } }
-.{ .op = .Get, .operand = .{ .Str = { 120 } } }
-.{ .op = .Get, .operand = .{ .Str = { 121 } } }
-.{ .op = .Add, .operand = .{ .Int = 0 } }
-.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
-.{ .op = .ConstStr, .operand = .{ .Str = { 121 } } }
-.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
-.{ .op = .Get, .operand = .{ .Str = { 121 } } }
-.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
-.{ .op = .Const, .operand = .{ .Int = 30 } }
+
+=== Section: First ===
+.{ .op = .Const, .operand = .{ .Int = 1 } }
+.{ .op = .SetVarGlobal, .operand = .{ .Str = { 120 } } }
+
+=== Section: Second ===
+.{ .op = .Const, .operand = .{ .Int = 9 } }
 .{ .op = .Mutate, .operand = .{ .Str = { 120 } } }
 .{ .op = .Get, .operand = .{ .Str = { 120 } } }
-.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
-.{ .op = .ConstStr, .operand = .{ .Str = { 120 } } }
-.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
-.{ .op = .Get, .operand = .{ .Str = { 120 } } }
-.{ .op = .Increment, .operand = .{ .Int = 1 } }
-.{ .op = .Mutate, .operand = .{ .Str = { 120 } } }
-.{ .op = .Get, .operand = .{ .Str = { 120 } } }
-.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
-.{ .op = .Get, .operand = .{ .Str = { 120 } } }
-.{ .op = .Increment, .operand = .{ .Int = 1 } }
-.{ .op = .Mutate, .operand = .{ .Str = { 120 } } }
-.{ .op = .Get, .operand = .{ .Str = { 120 } } }
-.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
-.{ .op = .Get, .operand = .{ .Str = { 120 } } }
-.{ .op = .Get, .operand = .{ .Str = { 120 } } }
-.{ .op = .Mul, .operand = .{ .Int = 0 } }
-.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 105, 110, 116 } } }
-.{ .op = .Const, .operand = .{ .Int = 2 } }
-.{ .op = .Mutate, .operand = .{ .Str = { 121 } } }
+.{ .op = .Call, .operand = .{ .Str = { 105, 111, 46, 112, 114, 110, 116 } } }

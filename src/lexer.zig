@@ -96,7 +96,8 @@ pub fn lex(src: []const u8, allocator: std.mem.Allocator) ![]Token {
                     i -= 1;
                 } else if (std.ascii.isAlphabetic(c)) {
                     const start = i;
-                    while (i < src.len and std.ascii.isAlphabetic(src[i])) : (i += 1) {}
+                    // MODIFICATO: Permetti lettere, numeri e underscore
+                    while (i < src.len and (std.ascii.isAlphanumeric(src[i]) or src[i] == '_')) : (i += 1) {}
                     const word = src[start..i];
                     const tok = if (std.mem.eql(u8, word, "var"))
                         TokenType.Var

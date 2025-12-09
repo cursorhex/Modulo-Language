@@ -3,7 +3,6 @@ const vm = @import("vm.zig");
 const lex = @import("lexer.zig").lex;
 const parser = @import("parser.zig");
 const codegen = @import("codegen.zig");
-const run = @import("vm.zig").run;
 const Ast = @import("ast.zig");
 
 pub fn main() !void {
@@ -56,7 +55,11 @@ pub fn main() !void {
     const tokens = try lex(src, allocator);
     defer allocator.free(tokens);
 
-    const program = try parser.parseProgram(tokens, allocator);
+    const program = parser.parseProgram(tokens, allocator) catch |err| {
+        std.debug.print("\nParse Error: {s}\n", .{@errorName(err)});
+        std.debug.print("Check your syntax!\n", .{});
+        return err;
+    };
     defer freeProgram(program, allocator);
 
     var sections_map = std.StringHashMap([]*Ast.Stmt).init(allocator);
@@ -81,6 +84,13 @@ pub fn main() !void {
             }
         };
     }
+
+    // Apri il file bytecode UNA VOLTA se richiesto
+    var bytecode_out_file: ?std.fs.File = null;
+    if (bytecode_file) |file_path| {
+        bytecode_out_file = try std.fs.cwd().createFile(file_path, .{});
+    }
+    defer if (bytecode_out_file) |*file| file.close();
 
     // POI esegui sections in ordine (se c'è program.run)
     if (program.program_run) |prog_run| {
@@ -114,9 +124,12 @@ pub fn main() !void {
                     const bytecode = try codegen.codegen(statements, allocator);
                     defer codegen.freeBytecode(bytecode, allocator);
 
-                    if (bytecode_file) |file_path| {
-                        var file = try std.fs.cwd().createFile(file_path, .{});
-                        defer file.close();
+                    // Scrivi bytecode nel file se richiesto
+                    if (bytecode_out_file) |*file| {
+                        const section_header = try std.fmt.allocPrint(allocator, "\n=== Section: {s} ===\n", .{section_name});
+                        defer allocator.free(section_header);
+                        try file.writeAll(section_header);
+
                         for (bytecode) |instr| {
                             const str = try std.fmt.allocPrint(allocator, "{any}\n", .{instr});
                             defer allocator.free(str);
@@ -126,7 +139,7 @@ pub fn main() !void {
 
                     vm.runWithEnv(bytecode, &global_env) catch |err| {
                         if (config.mode == .Debug) {
-                            std.debug.print("\n{s}Debug Info:{s} Error in section '{s}'\n", .{ "\x1b[33m", "\x1b[0m", section_name });
+                            std.debug.print("\nDebug Info: Error in section '{s}'\n", .{section_name});
                         }
 
                         switch (err) {
@@ -139,7 +152,7 @@ pub fn main() !void {
                         }
                     };
 
-                    // NUOVO: Pulisci le variabili locali dopo ogni sezione
+                    // Pulisci le variabili locali dopo ogni sezione
                     try global_env.clearLocalVariables();
                 } else {
                     std.debug.print("Error: Section '{s}' not found\n", .{section_name});
@@ -163,7 +176,7 @@ fn freeProgram(program: Ast.Program, allocator: std.mem.Allocator) void {
     }
     allocator.free(program.sections);
 
-    // NUOVO: Free loose statements
+    // Free loose statements
     for (program.loose_statements) |stmt| {
         parser.freeStmt(stmt, allocator);
     }
