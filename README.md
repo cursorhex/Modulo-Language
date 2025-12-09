@@ -1,4 +1,11 @@
-# Modulo
+<p align="center">
+  <img src="docs/img/logo.png" width="120">
+</p>
+
+<h1 align="center" style="font-family: 'Poppins', 'Segoe UI', sans-serif; font-weight: bold;">
+  Modulo
+</h1>
+
 This new language sucks and sucks. Its called Modulo bc of its "SECTIONS" thing, check it out pls.
 Yea, half of this is AI generated i think. Still in dev
 > the name actually sucks? Please tell me.
