@@ -58,6 +58,11 @@ pub const TokenType = enum {
     Arrow, // =>
     Choose,
     Set,
+    Fun,
+    Stage,
+    Pipeline,
+    Return,
+    Stages, // per "stages:"
     Eof,
 };
 
@@ -243,6 +248,16 @@ pub fn lex(src: []const u8, allocator: std.mem.Allocator) ![]Token {
                         TokenType.Choose
                     else if (std.mem.eql(u8, word, "set"))
                         TokenType.Set
+                    else if (std.mem.eql(u8, word, "fun"))
+                        TokenType.Fun
+                    else if (std.mem.eql(u8, word, "stage"))
+                        TokenType.Stage
+                    else if (std.mem.eql(u8, word, "pipeline"))
+                        TokenType.Pipeline
+                    else if (std.mem.eql(u8, word, "return"))
+                        TokenType.Return
+                    else if (std.mem.eql(u8, word, "stages"))
+                        TokenType.Stages
                     else
                         TokenType.Identifier;
                     try tokens.append(.{ .t = tok, .text = word });

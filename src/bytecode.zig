@@ -17,10 +17,10 @@ pub const OpCode = enum(u8) {
     Increment = 0x0D,
     Call = 0x0E,
     Concat = 0x0F,
-    Jump = 0x10, // salta a offset
-    JumpIfFalse = 0x11, // salta se falso
-    Compare = 0x12, // confronto
-    Choose = 0x13, // scelta random pesata
+    Jump = 0x10,
+    JumpIfFalse = 0x11,
+    Compare = 0x12,
+    Choose = 0x13,
 };
 
 pub const Operand = union(enum) {
@@ -72,32 +72,51 @@ pub fn decodeCompact(data: []const u8, allocator: std.mem.Allocator) ![]Instr {
         const op: OpCode = @enumFromInt(data[i]);
         i += 1;
 
-        const operand: Operand = switch (op) {
-            .Const, .Increment => blk: {
+        var operand: Operand = undefined;
+
+        switch (op) {
+            .Const, .Increment, .Jump, .JumpIfFalse, .Compare, .Choose => {
                 var val: i64 = undefined;
                 const bytes = data[i .. i + 8];
                 @memcpy(std.mem.asBytes(&val), bytes);
                 i += 8;
-                break :blk .{ .Int = val };
+                operand = .{ .Int = val };
             },
-            .ConstStr, .Get, .SetVar, .SetConst, .SetVarGlobal, .SetConstGlobal, .Mutate, .Call => blk: {
+
+            .ConstStr, .Get, .SetVar, .SetConst, .SetVarGlobal, .SetConstGlobal, .Mutate => {
                 var len: u16 = undefined;
                 const len_bytes = data[i .. i + 2];
                 @memcpy(std.mem.asBytes(&len), len_bytes);
                 i += 2;
+
                 const str = data[i .. i + len];
                 i += len;
-                break :blk .{ .Str = str };
+
+                // Qui NON allochiamo: questi slice puntano nel buffer `data`
+                operand = .{ .Str = str };
             },
-            .Add, .Sub, .Mul, .Div, .Concat => .{ .Int = 0 },
-            .Jump, .JumpIfFalse, .Compare, .Choose => blk: {
-                var val: i64 = undefined;
-                const bytes = data[i .. i + 8];
-                @memcpy(std.mem.asBytes(&val), bytes);
-                i += 8;
-                break :blk .{ .Int = val };
+
+            .Call => {
+                // Per Call vogliamo una stringa sempre allocata, così freeBytecode la può liberare
+                var len: u16 = undefined;
+                const len_bytes = data[i .. i + 2];
+                @memcpy(std.mem.asBytes(&len), len_bytes);
+                i += 2;
+
+                const raw = data[i .. i + len];
+                i += len;
+
+                const copy = try allocator.alloc(u8, raw.len);
+                @memcpy(copy, raw);
+
+                operand = .{ .Str = copy };
             },
-        };
+
+            .Add, .Sub, .Mul, .Div, .Concat => {
+                // Nessun operando significativo, usiamo 0
+                operand = .{ .Int = 0 };
+            },
+        }
 
         try result.append(.{ .op = op, .operand = operand });
     }

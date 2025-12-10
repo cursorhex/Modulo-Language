@@ -1,9 +1,15 @@
 const std = @import("std");
+
 const vm = @import("vm.zig");
+
 const lex = @import("lexer.zig").lex;
+
 const parser = @import("parser.zig");
+
 const codegen = @import("codegen.zig");
+
 const Ast = @import("ast.zig");
+
 fn bytesToHex(bytes: []const u8, allocator: std.mem.Allocator) ![]u8 {
     const hex_chars = "0123456789abcdef";
     var result = try allocator.alloc(u8, bytes.len * 2);
@@ -15,6 +21,40 @@ fn bytesToHex(bytes: []const u8, allocator: std.mem.Allocator) ![]u8 {
 
     return result;
 }
+
+fn registerFunctionsFromSection(section: *Ast.Section, env: *vm.Environment) !void {
+    for (section.statements) |stmt| {
+        switch (stmt.*) {
+            .FunDecl => |fun| {
+                try env.functions.append(.{
+                    .name = fun.name,
+                    .params = fun.params,
+                    .body = fun.body,
+                });
+            },
+
+            .StageDecl => |stage| {
+                try env.stages.append(.{
+                    .name = stage.name,
+                    .params = stage.params,
+                    .body = stage.body,
+                });
+            },
+
+            .PipelineDecl => |pipeline| {
+                try env.pipelines.append(.{
+                    .name = pipeline.name,
+                    .stages = pipeline.stages,
+                    .parallel = pipeline.parallel,
+                    .timeout = pipeline.timeout,
+                });
+            },
+
+            else => {},
+        }
+    }
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -43,8 +83,8 @@ pub fn main() !void {
 
     const default_src: []const u8 =
         \\section Main{{
-        \\  var(x): 10
-        \\  io.print (x)
+        \\ var(x): 10
+        \\ io.print (x)
         \\}}
         \\program.run [order: {Main}]
     ;
@@ -53,6 +93,7 @@ pub fn main() !void {
     if (input_file) |file_path| {
         var file = try std.fs.cwd().openFile(file_path, .{});
         defer file.close();
+
         const file_size = try file.getEndPos();
         src = try allocator.alloc(u8, file_size);
         _ = try file.read(src);
@@ -60,6 +101,7 @@ pub fn main() !void {
         src = try allocator.alloc(u8, default_src.len);
         @memcpy(src, default_src);
     }
+
     defer allocator.free(src);
 
     const tokens = try lex(src, allocator);
@@ -70,7 +112,6 @@ pub fn main() !void {
         std.debug.print("Check your syntax!\n", .{});
         return err;
     };
-    // Salva program.set come variabili globali
 
     defer freeProgram(program, allocator);
 
@@ -99,6 +140,7 @@ pub fn main() !void {
             // Salva ogni autore con indice
             for (pset.authors, 0..) |author, idx| {
                 const key = try std.fmt.allocPrint(allocator, "program.author.{d}", .{idx});
+                try global_env.trackAlloc(key);
                 try global_env.global_vars.append(.{
                     .name = key,
                     .value = .{ .Str = author },
@@ -106,8 +148,8 @@ pub fn main() !void {
                 });
             }
 
-            // ✅ Aggiungi questa parte
             const all_authors = try std.mem.join(allocator, ", ", pset.authors);
+            try global_env.trackAlloc(all_authors);
             try global_env.global_vars.append(.{
                 .name = "program.author",
                 .value = .{ .Str = all_authors },
@@ -159,6 +201,7 @@ pub fn main() !void {
     if (bytecode_file) |file_path| {
         bytecode_out_file = try std.fs.cwd().createFile(file_path, .{});
     }
+
     defer if (bytecode_out_file) |*file| file.close();
 
     // POI esegui sections in ordine (se c'è program.run)
@@ -190,50 +233,72 @@ pub fn main() !void {
                         std.debug.print("Executing section: {s}\n", .{section_name});
                     }
 
-                    const bytecode = try codegen.codegen(statements, allocator);
-                    defer codegen.freeBytecode(bytecode, allocator);
-
-                    // DEBUG: stampa bytecode POTREMMO POI ATTIVARLO CON UNA SETTING IN program.run[]
-                    //std.debug.print("=== Bytecode for {s} ===\n", .{section_name});
-                    //for (bytecode) |instr| {
-                    //    std.debug.print("{any}\n", .{instr});
-                    //}
-
-                    // Scrivi bytecode nel file se richiesto
-                    if (bytecode_out_file) |*file| {
-                        const section_header = try std.fmt.allocPrint(allocator, "\n=== Section: {s} ===\n", .{section_name});
-                        defer allocator.free(section_header);
-                        try file.writeAll(section_header);
-
-                        // NUOVO: Encodifica in formato compatto esadecimale
-                        const Bytecode = @import("bytecode.zig");
-                        const compact_bytes = try Bytecode.encodeCompact(bytecode, allocator);
-                        defer allocator.free(compact_bytes);
-
-                        // Converti bytes in stringa hex
-                        const hex_str = try bytesToHex(compact_bytes, allocator);
-                        defer allocator.free(hex_str);
-
-                        try file.writeAll(hex_str);
-                        try file.writeAll("\n");
-                    }
-
-                    vm.run(bytecode, &global_env) catch |err| {
-                        if (config.mode == .Debug) {
-                            std.debug.print("\nDebug Info: Error in section '{s}'\n", .{section_name});
+                    const section = blk: {
+                        for (program.sections) |s| {
+                            if (std.mem.eql(u8, s.name, section_name)) {
+                                break :blk s;
+                            }
                         }
-
-                        switch (err) {
-                            error.CannotMutateConstant, error.VariableNotFound => {
-                                if (config.on_error == .Stop) {
-                                    std.process.exit(1);
-                                }
-                            },
-                            else => return err,
-                        }
+                        unreachable;
                     };
 
-                    // Pulisci le variabili locali dopo ogni sezione
+                    try registerFunctionsFromSection(section, &global_env);
+
+                    for (statements) |stmt| {
+                        switch (stmt.*) {
+                            .FunDecl, .StageDecl, .PipelineDecl => continue,
+
+                            else => {
+                                const needs_interpreter = blk2: {
+                                    if (stmt.* == .VarDecl) {
+                                        const has_call = containsFunctionCall(stmt.VarDecl.value);
+                                        break :blk2 has_call;
+                                    } else if (stmt.* == .ExprStmt) {
+                                        if (stmt.ExprStmt.* == .FunctionCall) {
+                                            break :blk2 true;
+                                        }
+                                    }
+                                    break :blk2 false;
+                                };
+
+                                if (needs_interpreter) {
+                                    try vm.executeStmtInterpreter(&global_env, stmt);
+                                } else {
+                                    const single_stmt: []*Ast.Stmt = @constCast(&[_]*Ast.Stmt{stmt});
+                                    const bytecode = try codegen.codegen(single_stmt, allocator);
+                                    defer codegen.freeBytecode(bytecode, allocator);
+
+                                    if (bytecode_out_file) |*file| {
+                                        const Bytecode = @import("bytecode.zig");
+                                        const compact_bytes = try Bytecode.encodeCompact(bytecode, allocator);
+                                        defer allocator.free(compact_bytes);
+
+                                        const hex_str = try bytesToHex(compact_bytes, allocator);
+                                        defer allocator.free(hex_str);
+
+                                        try file.writeAll(hex_str);
+                                        try file.writeAll("\n");
+                                    }
+
+                                    vm.run(bytecode, &global_env) catch |err| {
+                                        if (config.mode == .Debug) {
+                                            std.debug.print("\nDebug Info: Error in section '{s}'\n", .{section_name});
+                                        }
+
+                                        switch (err) {
+                                            error.CannotMutateConstant, error.VariableNotFound => {
+                                                if (config.on_error == .Stop) {
+                                                    std.process.exit(1);
+                                                }
+                                            },
+                                            else => return err,
+                                        }
+                                    };
+                                }
+                            },
+                        }
+                    }
+
                     global_env.clearLocal();
                 } else {
                     std.debug.print("Error: Section '{s}' not found\n", .{section_name});
@@ -246,8 +311,21 @@ pub fn main() !void {
     }
 }
 
+fn containsFunctionCall(expr: *Ast.Expr) bool {
+    const result = switch (expr.*) {
+        .FunctionCall, .PipelineCall => true,
+        .Add, .Sub, .Mul, .Div, .Concat => |bin| {
+            return containsFunctionCall(bin.left) or containsFunctionCall(bin.right);
+        },
+        .Increment => |inner| return containsFunctionCall(inner),
+        else => false,
+    };
+
+    return result;
+}
+
 fn freeProgram(program: Ast.Program, allocator: std.mem.Allocator) void {
-    // Free sections
+    // 1. Free sections
     for (program.sections) |section| {
         for (section.statements) |stmt| {
             parser.freeStmt(stmt, allocator);
@@ -257,15 +335,34 @@ fn freeProgram(program: Ast.Program, allocator: std.mem.Allocator) void {
     }
     allocator.free(program.sections);
 
-    // Free loose statements
+    // 2. Free loose statements
     for (program.loose_statements) |stmt| {
         parser.freeStmt(stmt, allocator);
     }
     allocator.free(program.loose_statements);
 
-    // Free program_run
+    // 3. Free program_run
     if (program.program_run) |prog_run| {
         allocator.free(prog_run.order);
         allocator.destroy(prog_run);
+    }
+
+    // 4. Free program_set
+    if (program.program_set) |prog_set| {
+        // Libera authors (slice allocato con toOwnedSlice)
+        if (prog_set.authors.len > 0) {
+            allocator.free(prog_set.authors);
+        }
+
+        // Libera tags (slice allocato con toOwnedSlice)
+        if (prog_set.tags.len > 0) {
+            allocator.free(prog_set.tags);
+        }
+
+        // I campi name, description, license, homepage, created, version_debug, version_release
+        // sono tutti slice che puntano nel sorgente (Token.text), quindi NON vanno liberati.
+
+        // Libera il ProgramSet stesso
+        allocator.destroy(prog_set);
     }
 }

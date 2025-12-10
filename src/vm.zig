@@ -1,10 +1,20 @@
 const std = @import("std");
 const Bytecode = @import("bytecode.zig");
 const Ast = @import("ast.zig");
-
+const TempAllocList = @import("custom_array_list.zig").CustomArrayList([]const u8);
 const RED = "\x1b[31m";
 const YELLOW = "\x1b[33m";
 const RESET = "\x1b[0m";
+
+const InterpreterError = error{
+    OutOfMemory,
+    VariableNotFound,
+    CannotMutateConstant,
+    FunctionNotFound,
+    StageNotFound,
+    PipelineNotFound,
+    WrongNumberOfArguments,
+};
 
 pub const Value = union(enum) {
     Int: i64,
@@ -24,25 +34,70 @@ const VarArrayList = @import("custom_array_list.zig").CustomArrayList(Var);
 pub const Environment = struct {
     global_vars: VarArrayList,
     local_vars: VarArrayList,
+    functions: FunctionArrayList,
+    stages: StageArrayList,
+    pipelines: PipelineArrayList,
     allocator: std.mem.Allocator,
+    temp_allocations: TempAllocList,
 
     pub fn init(allocator: std.mem.Allocator) Environment {
         return Environment{
             .global_vars = VarArrayList.init(allocator),
             .local_vars = VarArrayList.init(allocator),
+            .functions = FunctionArrayList.init(allocator),
+            .stages = StageArrayList.init(allocator),
+            .pipelines = PipelineArrayList.init(allocator),
             .allocator = allocator,
+            .temp_allocations = TempAllocList.init(allocator),
         };
     }
 
     pub fn deinit(self: *Environment) void {
+        // Libera tutte le allocazioni temporanee
+        for (self.temp_allocations.items) |alloc| {
+            self.allocator.free(alloc);
+        }
+        self.temp_allocations.deinit();
+
         self.global_vars.deinit();
         self.local_vars.deinit();
+        self.functions.deinit();
+        self.stages.deinit();
+        self.pipelines.deinit();
     }
 
     pub fn clearLocal(self: *Environment) void {
         self.local_vars.clear();
     }
+
+    // 🔥 AGGIUNGI QUESTO
+    pub fn trackAlloc(self: *Environment, buf: []const u8) !void {
+        try self.temp_allocations.append(buf);
+    }
 };
+
+pub const FunctionDef = struct {
+    name: []const u8,
+    params: [][]const u8,
+    body: []*Ast.Stmt,
+};
+
+pub const StageDef = struct {
+    name: []const u8,
+    params: [][]const u8,
+    body: []*Ast.Stmt,
+};
+
+pub const PipelineDef = struct {
+    name: []const u8,
+    stages: [][]const u8,
+    parallel: bool,
+    timeout: i64,
+};
+
+const FunctionArrayList = @import("custom_array_list.zig").CustomArrayList(FunctionDef);
+const StageArrayList = @import("custom_array_list.zig").CustomArrayList(StageDef);
+const PipelineArrayList = @import("custom_array_list.zig").CustomArrayList(PipelineDef);
 
 pub fn run(bytecode: []Bytecode.Instr, env: *Environment) !void {
     var stack = ValueArrayList.init(env.allocator);
@@ -85,7 +140,8 @@ pub fn run(bytecode: []Bytecode.Instr, env: *Environment) !void {
                 const result = @divTrunc(a.Int, b.Int);
                 try stack.append(.{ .Int = result });
             },
-            .Concat => {
+
+            .Concat => { // ✅ AGGIUNGI QUESTO
                 const right = stack.pop();
                 const left = stack.pop();
 
@@ -103,8 +159,10 @@ pub fn run(bytecode: []Bytecode.Instr, env: *Environment) !void {
                 };
 
                 const result = try std.fmt.allocPrint(env.allocator, "{s}{s}", .{ left_str, right_str });
+                try env.temp_allocations.append(result);
                 try stack.append(.{ .Str = result });
             },
+
             .Get => {
                 const var_name = instr.operand.Str;
                 const val = try getVar(env, var_name);
@@ -304,6 +362,9 @@ pub fn run(bytecode: []Bytecode.Instr, env: *Environment) !void {
                     const alloc_line = try env.allocator.alloc(u8, len);
                     if (line) |l| @memcpy(alloc_line, l);
 
+                    // Traccia l'allocazione per liberarla in Environment.deinit()
+                    try env.temp_allocations.append(alloc_line);
+
                     try stack.append(.{ .Str = alloc_line });
                 }
             },
@@ -329,8 +390,200 @@ fn setVar(env: *Environment, name: []const u8, value: Value, is_const: bool, is_
     const vars = if (is_global) &env.global_vars else &env.local_vars;
     try vars.append(.{ .name = name, .value = value, .is_const = is_const });
 }
+fn findFunction(env: *Environment, name: []const u8) ?FunctionDef {
+    for (env.functions.items) |func| {
+        if (std.mem.eql(u8, func.name, name)) {
+            return func;
+        }
+    }
+    return null;
+}
 
-fn mutateVar(env: *Environment, name: []const u8, new_value: Value) !void {
+fn findStage(env: *Environment, name: []const u8) ?StageDef {
+    for (env.stages.items) |stage| {
+        if (std.mem.eql(u8, stage.name, name)) {
+            return stage;
+        }
+    }
+    return null;
+}
+
+fn findPipeline(env: *Environment, name: []const u8) ?PipelineDef {
+    for (env.pipelines.items) |pipeline| {
+        if (std.mem.eql(u8, pipeline.name, name)) {
+            return pipeline;
+        }
+    }
+    return null;
+}
+pub fn executeFunction(env: *Environment, func: FunctionDef, args: []Value) InterpreterError!Value {
+    // Salva stato locale
+    const saved_local_count = env.local_vars.items.len;
+    defer {
+        // Ripristina stato locale
+        while (env.local_vars.items.len > saved_local_count) {
+            _ = env.local_vars.pop();
+        }
+    }
+
+    // Bind parametri
+    if (func.params.len != args.len) {
+        return error.WrongNumberOfArguments;
+    }
+
+    for (func.params, args) |param, arg| {
+        try env.local_vars.append(.{
+            .name = param,
+            .value = arg,
+            .is_const = false,
+        });
+    }
+
+    // Esegui body (devi implementare executeStmt - vedi sotto)
+    var return_value: ?Value = null;
+    for (func.body) |stmt| {
+        if (stmt.* == .Return) {
+            return_value = try evaluateExpr(env, stmt.Return);
+            break;
+        }
+        try executeStmtInterpreter(env, stmt);
+    }
+
+    return return_value orelse .{ .Int = 0 };
+}
+
+// Esecuzione statement in modalità interprete
+pub fn executeStmtInterpreter(env: *Environment, stmt: *Ast.Stmt) InterpreterError!void {
+    switch (stmt.*) {
+        .VarDecl => |var_decl| {
+            const val = try evaluateExpr(env, var_decl.value);
+            try setVar(env, var_decl.name, val, var_decl.is_const, var_decl.is_global);
+        },
+        .Mutation => |mutation| {
+            const val = try evaluateExpr(env, mutation.value);
+            try mutateVar(env, mutation.name, val);
+        },
+        .ExprStmt => |expr| {
+            _ = try evaluateExpr(env, expr);
+        },
+        .Return => {}, // Gestito in executeFunction
+        .FunDecl => |fun| {
+            try env.functions.append(.{
+                .name = fun.name,
+                .params = fun.params,
+                .body = fun.body,
+            });
+        },
+        .StageDecl => |stage| {
+            try env.stages.append(.{
+                .name = stage.name,
+                .params = stage.params,
+                .body = stage.body,
+            });
+        },
+        .PipelineDecl => |pipeline| {
+            try env.pipelines.append(.{
+                .name = pipeline.name,
+                .stages = pipeline.stages,
+                .parallel = pipeline.parallel,
+                .timeout = pipeline.timeout,
+            });
+        },
+        else => {},
+    }
+}
+
+// Valuta espressioni
+pub fn evaluateExpr(env: *Environment, expr: *Ast.Expr) InterpreterError!Value {
+    switch (expr.*) {
+        .Number => |n| return .{ .Int = n },
+        .String => |s| return .{ .Str = s },
+        .Var => |name| return try getVar(env, name),
+        .Add => |bin| {
+            const left = try evaluateExpr(env, bin.left);
+            const right = try evaluateExpr(env, bin.right);
+            return .{ .Int = left.Int + right.Int };
+        },
+        .Sub => |bin| {
+            const left = try evaluateExpr(env, bin.left);
+            const right = try evaluateExpr(env, bin.right);
+            return .{ .Int = left.Int - right.Int };
+        },
+        .Mul => |bin| {
+            const left = try evaluateExpr(env, bin.left);
+            const right = try evaluateExpr(env, bin.right);
+            return .{ .Int = left.Int * right.Int };
+        },
+        .Div => |bin| {
+            const left = try evaluateExpr(env, bin.left);
+            const right = try evaluateExpr(env, bin.right);
+            return .{ .Int = @divTrunc(left.Int, right.Int) };
+        },
+        .FunctionCall => |call| {
+            const func = findFunction(env, call.name) orelse return error.FunctionNotFound;
+
+            var args = try env.allocator.alloc(Value, call.args.len);
+            defer env.allocator.free(args);
+
+            for (call.args, 0..) |arg_expr, i| {
+                args[i] = try evaluateExpr(env, arg_expr);
+            }
+
+            return try executeFunction(env, func, args);
+        },
+        .PipelineCall => |pcall| {
+            const pipeline = findPipeline(env, pcall.pipeline_name) orelse return error.PipelineNotFound;
+            const input = try evaluateExpr(env, pcall.input);
+            return try executePipeline(env, pipeline, input);
+        },
+        .Concat => |bin| { // ✅ QUI è corretto (dentro evaluateExpr)
+            const left = try evaluateExpr(env, bin.left);
+            const right = try evaluateExpr(env, bin.right);
+
+            var buf: [1024]u8 = undefined;
+            var fba = std.heap.FixedBufferAllocator.init(&buf);
+            const temp_alloc = fba.allocator();
+
+            const left_str = switch (left) {
+                .Int => |i| try std.fmt.allocPrint(temp_alloc, "{d}", .{i}),
+                .Str => |s| s,
+            };
+            const right_str = switch (right) {
+                .Int => |i| try std.fmt.allocPrint(temp_alloc, "{d}", .{i}),
+                .Str => |s| s,
+            };
+
+            const result = try std.fmt.allocPrint(env.allocator, "{s}{s}", .{ left_str, right_str });
+            try env.temp_allocations.append(result);
+
+            return .{ .Str = result };
+        },
+        else => return .{ .Int = 0 },
+    }
+}
+
+// Esecuzione pipeline
+fn executePipeline(env: *Environment, pipeline: PipelineDef, input: Value) InterpreterError!Value {
+    var result = input;
+
+    // Per ora eseguiamo sequenzialmente
+    // TODO: implementare parallel execution con threads
+    for (pipeline.stages) |stage_name| {
+        const stage = findStage(env, stage_name) orelse return error.StageNotFound;
+
+        // Esegui stage come funzione con input
+        var args = [_]Value{result};
+        result = try executeFunction(env, .{
+            .name = stage.name,
+            .params = stage.params,
+            .body = stage.body,
+        }, &args);
+    }
+
+    return result;
+}
+
+fn mutateVar(env: *Environment, name: []const u8, new_value: Value) InterpreterError!void {
     for (env.local_vars.items) |*v| {
         if (std.mem.eql(u8, v.name, name)) {
             if (v.is_const) {

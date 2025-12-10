@@ -66,13 +66,40 @@ pub fn freeStmt(stmt: *Ast.Stmt, allocator: std.mem.Allocator) void {
             allocator.free(if_stmt.then_block);
             allocator.free(if_stmt.else_block);
         },
+
+        .FunDecl => |fun| {
+            for (fun.body) |body_stmt| {
+                freeStmt(body_stmt, allocator);
+            }
+            allocator.free(fun.params);
+            allocator.free(fun.body);
+        },
+
+        .StageDecl => |stage| {
+            for (stage.body) |body_stmt| {
+                freeStmt(body_stmt, allocator);
+            }
+            allocator.free(stage.params);
+            allocator.free(stage.body);
+        },
+
+        .PipelineDecl => |pipeline| {
+            allocator.free(pipeline.stages);
+        },
+
+        .Return => |ret_expr| {
+            freeExpr(ret_expr, allocator);
+        },
     }
     allocator.destroy(stmt);
 }
 
 fn freeExpr(expr: *Ast.Expr, allocator: std.mem.Allocator) void {
     switch (expr.*) {
-        .Number, .String, .Var => {},
+        .Number, .String => {},
+        .Var => |name| {
+            allocator.free(name);
+        },
         .Add, .Sub, .Mul, .Div, .Concat => |bin_op| {
             freeExpr(bin_op.left, allocator);
             freeExpr(bin_op.right, allocator);
@@ -92,6 +119,17 @@ fn freeExpr(expr: *Ast.Expr, allocator: std.mem.Allocator) void {
                 freeExpr(arm.value, allocator);
             }
             allocator.free(arms);
+        },
+
+        .FunctionCall => |call| {
+            for (call.args) |arg| {
+                freeExpr(arg, allocator);
+            }
+            allocator.free(call.args);
+        },
+
+        .PipelineCall => |pcall| {
+            freeExpr(pcall.input, allocator);
         },
     }
     allocator.destroy(expr);
@@ -267,10 +305,9 @@ const Parser = struct {
             if (self.check(.Section)) {
                 try sections.append(try self.parseSection());
             } else if (self.check(.Program)) {
-                // Guarda avanti per vedere se è .run o .set
                 const saved = self.current;
-                _ = self.advance(); // program
-                _ = self.advance(); // dot
+                _ = self.advance();
+                _ = self.advance();
 
                 if (self.check(.Run)) {
                     self.current = saved;
@@ -290,7 +327,7 @@ const Parser = struct {
             .sections = try sections.toOwnedSlice(),
             .loose_statements = try loose_statements.toOwnedSlice(),
             .program_run = program_run,
-            .program_set = program_set, // ← nuovo
+            .program_set = program_set,
         };
     }
 
@@ -326,9 +363,62 @@ const Parser = struct {
             return self.parseConstDeclaration(is_global);
         }
 
-        // if statement
+        if (self.check(.Fun)) {
+            return self.parseFunDecl();
+        }
+
+        if (self.check(.Stage)) {
+            return self.parseStageDecl();
+        }
+
+        if (self.check(.Pipeline)) {
+            return self.parsePipelineDecl();
+        }
+
+        if (self.check(.Return)) {
+            return self.parseReturn();
+        }
+
         if (self.check(.If)) {
             return self.parseIfStatement();
+        }
+
+        if (self.check(.Identifier)) {
+            const saved = self.current;
+            const name_tok = self.advance();
+
+            if (self.check(.LParen)) {
+                _ = self.advance();
+
+                const ArrayList = @import("custom_array_list.zig").CustomArrayList;
+                var args = ArrayList(*Ast.Expr).init(self.allocator);
+                defer args.deinit();
+
+                if (!self.check(.RParen)) {
+                    while (true) {
+                        const arg = try self.parseExpression();
+                        try args.append(arg);
+
+                        if (!self.match(.{.Comma})) break;
+                    }
+                }
+
+                try self.consume(.RParen);
+
+                const expr = try self.allocator.create(Ast.Expr);
+                expr.* = .{
+                    .FunctionCall = .{
+                        .name = name_tok.text,
+                        .args = try args.toOwnedSlice(),
+                    },
+                };
+
+                const stmt = try self.allocator.create(Ast.Stmt);
+                stmt.* = .{ .ExprStmt = expr };
+                return stmt;
+            }
+
+            self.current = saved;
         }
 
         if (self.check(.LParen)) {
@@ -350,6 +440,163 @@ const Parser = struct {
         const expr = try self.parseExpression();
         const stmt = try self.allocator.create(Ast.Stmt);
         stmt.* = .{ .ExprStmt = expr };
+        return stmt;
+    }
+
+    fn parseFunDecl(self: *Parser) ParseError!*Ast.Stmt {
+        try self.consume(.Fun);
+        try self.consume(.Identifier);
+        const name = self.previous().text;
+
+        try self.consume(.LParen);
+
+        const ArrayList = @import("custom_array_list.zig").CustomArrayList;
+        var params = ArrayList([]const u8).init(self.allocator);
+        defer params.deinit();
+
+        if (!self.check(.RParen)) {
+            while (true) {
+                try self.consume(.Identifier);
+                try params.append(self.previous().text);
+
+                if (!self.match(.{.Comma})) break;
+            }
+        }
+
+        try self.consume(.RParen);
+        try self.consume(.LBrace);
+
+        var body = ArrayList(*Ast.Stmt).init(self.allocator);
+        defer body.deinit();
+
+        while (!self.check(.RBrace) and !self.isAtEnd()) {
+            const stmt = try self.parseStatement();
+            try body.append(stmt);
+        }
+
+        try self.consume(.RBrace);
+
+        const stmt = try self.allocator.create(Ast.Stmt);
+        stmt.* = .{
+            .FunDecl = .{
+                .name = name,
+                .params = try params.toOwnedSlice(),
+                .body = try body.toOwnedSlice(),
+            },
+        };
+        return stmt;
+    }
+
+    fn parseStageDecl(self: *Parser) ParseError!*Ast.Stmt {
+        try self.consume(.Stage);
+        try self.consume(.Identifier);
+        const name = self.previous().text;
+
+        try self.consume(.LParen);
+
+        const ArrayList = @import("custom_array_list.zig").CustomArrayList;
+        var params = ArrayList([]const u8).init(self.allocator);
+        defer params.deinit();
+
+        if (!self.check(.RParen)) {
+            while (true) {
+                try self.consume(.Identifier);
+                try params.append(self.previous().text);
+
+                if (!self.match(.{.Comma})) break;
+            }
+        }
+
+        try self.consume(.RParen);
+        try self.consume(.LBrace);
+
+        var body = ArrayList(*Ast.Stmt).init(self.allocator);
+        defer body.deinit();
+
+        while (!self.check(.RBrace) and !self.isAtEnd()) {
+            const stmt = try self.parseStatement();
+            try body.append(stmt);
+        }
+
+        try self.consume(.RBrace);
+
+        const stmt = try self.allocator.create(Ast.Stmt);
+        stmt.* = .{
+            .StageDecl = .{
+                .name = name,
+                .params = try params.toOwnedSlice(),
+                .body = try body.toOwnedSlice(),
+            },
+        };
+        return stmt;
+    }
+
+    fn parseReturn(self: *Parser) ParseError!*Ast.Stmt {
+        try self.consume(.Return);
+        const expr = try self.parseExpression();
+
+        const stmt = try self.allocator.create(Ast.Stmt);
+        stmt.* = .{ .Return = expr };
+        return stmt;
+    }
+
+    fn parsePipelineDecl(self: *Parser) ParseError!*Ast.Stmt {
+        try self.consume(.Pipeline);
+        try self.consume(.Identifier);
+        const name = self.previous().text;
+
+        try self.consume(.LBrace);
+
+        const ArrayList = @import("custom_array_list.zig").CustomArrayList;
+        var stages = ArrayList([]const u8).init(self.allocator);
+        defer stages.deinit();
+
+        var parallel = false;
+        var timeout: i64 = 0;
+
+        if (self.match(.{.Stages})) {
+            try self.consume(.Colon);
+            try self.consume(.LBracket);
+
+            while (!self.check(.RBracket)) {
+                try self.consume(.Identifier);
+                try stages.append(self.previous().text);
+                _ = self.match(.{.Comma});
+            }
+
+            try self.consume(.RBracket);
+            _ = self.match(.{.Comma});
+        }
+
+        if (self.match(.{.Parallel})) {
+            try self.consume(.Colon);
+            if (self.match(.{.True})) {
+                parallel = true;
+            } else {
+                try self.consume(.False);
+                parallel = false;
+            }
+            _ = self.match(.{.Comma});
+        }
+
+        if (self.match(.{.Timeout})) {
+            try self.consume(.Colon);
+            try self.consume(.Number);
+            timeout = try std.fmt.parseInt(i64, self.previous().text, 10);
+            _ = self.match(.{.Comma});
+        }
+
+        try self.consume(.RBrace);
+
+        const stmt = try self.allocator.create(Ast.Stmt);
+        stmt.* = .{
+            .PipelineDecl = .{
+                .name = name,
+                .stages = try stages.toOwnedSlice(),
+                .parallel = parallel,
+                .timeout = timeout,
+            },
+        };
         return stmt;
     }
 
@@ -581,15 +828,10 @@ const Parser = struct {
                     try self.consume(.LBrace);
 
                     while (!self.check(.RBrace)) {
-                        // ❌ Questo fallisce se 'debug' è una keyword
-                        // try self.consume(.Identifier);
-
-                        // ✅ Fix: accetta Identifier O controlla il testo corrente
                         if (!self.check(.Identifier)) {
-                            // Se non è Identifier, potrebbe essere una keyword usata come chiave
-                            // Accetta qualsiasi token e prendi il testo
+                            // accetta qualsiasi token come chiave
                         }
-                        const ver_key = self.advance().text; // Prendi qualsiasi token
+                        const ver_key = self.advance().text;
 
                         try self.consume(.Colon);
                         try self.consume(.String);
@@ -661,15 +903,33 @@ const Parser = struct {
             return self.parseChoose();
         }
 
+        if (self.check(.Pipeline)) {
+            _ = self.advance();
+            try self.consume(.LParen);
+            try self.consume(.Identifier);
+            const pipeline_name = self.previous().text;
+            try self.consume(.RParen);
+
+            try self.consume(.LParen);
+            const input = try self.parseExpression();
+            try self.consume(.RParen);
+
+            const expr = try self.allocator.create(Ast.Expr);
+            expr.* = .{
+                .PipelineCall = .{
+                    .pipeline_name = pipeline_name,
+                    .input = input,
+                },
+            };
+            return expr;
+        }
+
         if (self.check(.LParen)) {
             const saved_pos = self.current;
             _ = self.advance();
 
-            // Accetta sia Identifier che Program keyword
             if (self.match(.{.Identifier}) or self.match(.{.Program})) {
                 const token = self.previous();
-
-                //std.debug.print("DEBUG parsePrimary: Token '{s}'\n", .{token.text});
 
                 if (std.mem.eql(u8, token.text, "program") and self.check(.Dot)) {
                     const StringArrayList = @import("custom_array_list.zig").CustomArrayList([]const u8);
@@ -697,8 +957,12 @@ const Parser = struct {
 
                 try self.consume(.RParen);
 
+                const src = token.text;
+                const name = try self.allocator.alloc(u8, src.len);
+                @memcpy(name, src);
+
                 const expr = try self.allocator.create(Ast.Expr);
-                expr.* = .{ .Var = token.text };
+                expr.* = .{ .Var = name };
                 return expr;
             }
 
@@ -715,7 +979,6 @@ const Parser = struct {
             try self.consume(.Identifier);
             const func_name = self.previous().text;
 
-            // io.input "placeholder"
             if (std.mem.eql(u8, func_name, "input")) {
                 try self.consume(.String);
                 const placeholder_text = self.previous().text;
@@ -735,7 +998,6 @@ const Parser = struct {
                 return call_expr;
             }
 
-            // io.print / io.warn / io.error
             var argument: *Ast.Expr = undefined;
             var type_hint: []const u8 = "";
 
@@ -779,11 +1041,9 @@ const Parser = struct {
             return call_expr;
         }
 
-        // Accetta sia Identifier che Program keyword (fuori da parentesi)
         if (self.match(.{.Identifier}) or self.match(.{.Program})) {
             const token = self.previous();
 
-            // Se è 'program' e seguito da dot, costruisci il path
             if (std.mem.eql(u8, token.text, "program") and self.check(.Dot)) {
                 const StringArrayList = @import("custom_array_list.zig").CustomArrayList([]const u8);
                 var path_parts = StringArrayList.init(self.allocator);
@@ -806,8 +1066,40 @@ const Parser = struct {
                 return expr;
             }
 
+            if (self.check(.LParen)) {
+                _ = self.advance();
+
+                const ArrayList = @import("custom_array_list.zig").CustomArrayList;
+                var args = ArrayList(*Ast.Expr).init(self.allocator);
+                defer args.deinit();
+
+                if (!self.check(.RParen)) {
+                    while (true) {
+                        const arg = try self.parseExpression();
+                        try args.append(arg);
+
+                        if (!self.match(.{.Comma})) break;
+                    }
+                }
+
+                try self.consume(.RParen);
+
+                const expr = try self.allocator.create(Ast.Expr);
+                expr.* = .{
+                    .FunctionCall = .{
+                        .name = token.text,
+                        .args = try args.toOwnedSlice(),
+                    },
+                };
+                return expr;
+            }
+
+            const src = token.text;
+            const name = try self.allocator.alloc(u8, src.len);
+            @memcpy(name, src);
+
             const expr = try self.allocator.create(Ast.Expr);
-            expr.* = .{ .Var = token.text };
+            expr.* = .{ .Var = name };
             return expr;
         }
 
@@ -826,7 +1118,7 @@ const Parser = struct {
             try self.consume(.Number);
             const weight = try std.fmt.parseInt(i64, self.previous().text, 10);
 
-            try self.consume(.Arrow); // =>
+            try self.consume(.Arrow);
 
             const value = try self.parseExpression();
 
@@ -835,7 +1127,6 @@ const Parser = struct {
                 .value = value,
             });
 
-            // opzionale: consuma newline/comma se presente
             _ = self.match(.{.Comma});
         }
 

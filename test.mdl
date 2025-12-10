@@ -70,11 +70,28 @@ section ChooseTest{{
     }
 
     VAR(age): io.input "scrivi qui la tua eta' -> "
-    io.error ("la tua eta' e' " .. (age))
+    io.print ("la tua eta' e' " .. (age))
+}}
+
+section New {{
+    fun Add10(x) {
+        var(result): ((x) + 10)
+        return (result)
+    }
+    //fun Printo {
+    //    print.io as txt "ciaooo"
+    //}
+    
+    var(test): Add10(5)
+    
+    io.print (test)  // Output: 15
+    //Printo()
 }}
 
 
-
 program.run[
-    order: {Test, Believe, IfAndElse, ChooseTest},
+    order: {Test, Believe, IfAndElse, ChooseTest, New},
+    mode: release,
+    repeat: 1
 ]
+ 

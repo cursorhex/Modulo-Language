@@ -36,6 +36,14 @@ pub const Expr = union(enum) {
         right: *Expr,
     },
     Choose: []ChoiceArm,
+    FunctionCall: struct {
+        name: []const u8,
+        args: []*Expr,
+    },
+    PipelineCall: struct {
+        pipeline_name: []const u8,
+        input: *Expr,
+    },
 };
 
 pub const ChoiceArm = struct {
@@ -64,6 +72,26 @@ pub const Stmt = union(enum) {
         elseif_branches: []ElseIfBranch,
         else_block: []*Stmt,
     },
+    FunDecl: struct {
+        name: []const u8,
+        params: [][]const u8,
+        body: []*Stmt,
+    },
+
+    StageDecl: struct {
+        name: []const u8,
+        params: [][]const u8,
+        body: []*Stmt,
+    },
+
+    PipelineDecl: struct {
+        name: []const u8,
+        stages: [][]const u8,
+        parallel: bool,
+        timeout: i64,
+    },
+
+    Return: *Expr,
 };
 
 pub const ElseIfBranch = struct {
