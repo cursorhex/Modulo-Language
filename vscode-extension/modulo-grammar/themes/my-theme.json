@@ -1,0 +1,86 @@
+{
+  "$schema": "vscode://schemas/color-theme",
+  "name": "Modulo Theme",
+  "tokenColors": [
+    {
+      "scope": "comment.line.double-slash.modulo",
+      "settings": {"foreground": "#6A9955"}
+    },
+    {
+      "scope": "keyword.control.modulo",
+      "settings": {"foreground": "#569CD6", "fontStyle": "bold"}
+    },
+    {
+      "scope": "keyword.declaration.modulo",
+      "settings": {"foreground": "#4EC9B0"}
+    },
+    {
+      "scope": "keyword.other.modulo",
+      "settings": {"foreground": "#C586C0"}
+    },
+    {
+      "scope": "entity.name.type.program.modulo",
+      "settings": {"foreground": "#4FC1FF"}
+    },
+    {
+      "scope": "support.constant.config.modulo",
+      "settings": {"foreground": "#9CDCFE"}
+    },
+    {
+      "scope": "keyword.operator.modulo",
+      "settings": {"foreground": "#D4D4D4"}
+    },
+    {
+      "scope": "keyword.operator.arithmetic.modulo",
+      "settings": {"foreground": "#DCDCAA"}
+    },
+    {
+      "scope": "keyword.operator.comparison.modulo",
+      "settings": {"foreground": "#DCDCAA"}
+    },
+    {
+      "scope": "constant.numeric.decimal.modulo",
+      "settings": {"foreground": "#B5CEA8"}
+    },
+    {
+      "scope": "constant.numeric.hex.modulo",
+      "settings": {"foreground": "#CE9178"}
+    },
+    {
+      "scope": "string.quoted.double.modulo",
+      "settings": {"foreground": "#CE9178"}
+    },
+    {
+      "scope": "keyword.control.bytecode.modulo",
+      "settings": {"foreground": "#FFD700"}
+    },
+    {
+      "scope": "support.function.io.modulo",
+      "settings": {"foreground": "#DCDCAA"}
+    },
+    {
+      "scope": "support.function.call.modulo",
+      "settings": {"foreground": "#DCDCAA"}
+    },
+    {
+      "scope": "variable.other.section.modulo",
+      "settings": {"foreground": "#4EC9B0", "fontStyle": "bold"}
+    },
+    {
+      "scope": "punctuation.section.begin.modulo, punctuation.section.end.modulo",
+      "settings": {"foreground": "#808080"}
+    },
+    {
+      "scope": "variable.other.modulo",
+      "settings": {"foreground": "#9CDCFE"}
+    },
+    {
+      "scope": "variable.language.program.modulo",
+      "settings": {"foreground": "#569CD6"}
+    },
+    {
+      "scope": "punctuation.parenthesis.round.modulo, punctuation.parenthesis.square.modulo, punctuation.brace.curly.modulo",
+      "settings": {"foreground": "#D4D4D4"}
+    }
+  ]
+}

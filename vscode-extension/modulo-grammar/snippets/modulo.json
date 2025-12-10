@@ -1,0 +1,57 @@
+{
+  "Section": {
+    "prefix": "section",
+    "body": [
+      "section ${1:name} {{",
+      "\t$0",
+      "}}"
+    ],
+    "description": "Create a new section"
+  },
+  "Variable Declaration": {
+    "prefix": "var",
+    "body": "var(${1:name}): ${2:value}",
+    "description": "Declare a variable"
+  },
+  "Constant Declaration": {
+    "prefix": "const",
+    "body": "const(${1:name}): ${2:value}",
+    "description": "Declare a constant"
+  },
+  "If Statement": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "If statement"
+  },
+  "Program Run": {
+    "prefix": "program.run",
+    "body": [
+      "program.run[",
+      "\torder: {${1:section1}},", 
+      "\tmode: debug,",
+      "\toptimize: speed,",
+      "\trepeat: 1",
+      "]"
+    ],
+    "description": "Program run configuration"
+  },
+  "IO Print": {
+    "prefix": "io.print",
+    "body": "io.print(${1:text})",
+    "description": "Print to console"
+  },
+  "Choose Block": {
+    "prefix": "choose",
+    "body": [
+      "choose {",
+      "\t${1:10} => ${2:value1},",
+      "\t${3:90} => ${4:value2}",
+      "}"
+    ],
+    "description": "Weighted choice block"
+  }
+}
