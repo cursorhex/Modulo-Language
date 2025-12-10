@@ -90,9 +90,21 @@ pub const ProgramRun = struct {
     order: [][]const u8,
     config: ProgramConfig,
 };
+pub const ProgramSet = struct {
+    name: ?[]const u8 = null,
+    authors: [][]const u8 = &[_][]const u8{},
+    version_debug: ?[]const u8 = null,
+    version_release: ?[]const u8 = null,
+    description: ?[]const u8 = null,
+    license: ?[]const u8 = null,
+    homepage: ?[]const u8 = null,
+    created: ?[]const u8 = null,
+    tags: [][]const u8 = &[_][]const u8{},
+};
 
 pub const Program = struct {
     sections: []*Section,
     loose_statements: []*Stmt,
     program_run: ?*ProgramRun,
+    program_set: ?*ProgramSet, // ← nuovo
 };

@@ -70,6 +70,8 @@ pub fn main() !void {
         std.debug.print("Check your syntax!\n", .{});
         return err;
     };
+    // Salva program.set come variabili globali
+
     defer freeProgram(program, allocator);
 
     var sections_map = std.StringHashMap([]*Ast.Stmt).init(allocator);
@@ -82,6 +84,63 @@ pub fn main() !void {
     // ESEGUI LOOSE STATEMENTS PRIMA (se ce ne sono)
     var global_env = vm.Environment.init(allocator);
     defer global_env.deinit();
+
+    if (program.program_set) |pset| {
+        if (pset.name) |name| {
+            try global_env.global_vars.append(.{
+                .name = "program.name",
+                .value = .{ .Str = name },
+                .is_const = true,
+            });
+        }
+
+        // Authors come array (per ora come stringa concatenata)
+        if (pset.authors.len > 0) {
+            // Salva ogni autore con indice
+            for (pset.authors, 0..) |author, idx| {
+                const key = try std.fmt.allocPrint(allocator, "program.author.{d}", .{idx});
+                try global_env.global_vars.append(.{
+                    .name = key,
+                    .value = .{ .Str = author },
+                    .is_const = true,
+                });
+            }
+
+            // ✅ Aggiungi questa parte
+            const all_authors = try std.mem.join(allocator, ", ", pset.authors);
+            try global_env.global_vars.append(.{
+                .name = "program.author",
+                .value = .{ .Str = all_authors },
+                .is_const = true,
+            });
+        }
+
+        if (pset.version_debug) |ver| {
+            try global_env.global_vars.append(.{
+                .name = "program.version.debug",
+                .value = .{ .Str = ver },
+                .is_const = true,
+            });
+        }
+
+        if (pset.version_release) |ver| {
+            try global_env.global_vars.append(.{
+                .name = "program.version.release",
+                .value = .{ .Str = ver },
+                .is_const = true,
+            });
+        }
+
+        if (pset.description) |desc| {
+            try global_env.global_vars.append(.{
+                .name = "program.description",
+                .value = .{ .Str = desc },
+                .is_const = true,
+            });
+        }
+
+        // ... altri campi simili
+    }
 
     if (program.loose_statements.len > 0) {
         const bytecode = try codegen.codegen(program.loose_statements, allocator);

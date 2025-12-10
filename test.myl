@@ -1,3 +1,19 @@
+program.set[
+    name: "MyProject",
+    author: {"Simone", "Edo"},
+    version: {
+        debug: "1.0.0-dev",
+        release: "1.0.0"
+    }
+]
+
+io.print as txt "-----------------------------------"
+io.warn ("nome progetto: " .. (program.name))
+io.warn ("nome autore: " .. (program.author))
+io.warn ("version di debug: " .. (program.version.debug))
+io.warn ("version di release: " .. (program.version.release))
+io.print as txt "-----------------------------------"
+
 section Test0{{
     io.print as txt "wow from the bytecode loaded with the bytecode func"
 }}
@@ -52,6 +68,9 @@ section ChooseTest{{
         60 => io.warn as u8 1
         40 => io.warn as u8 2
     }
+
+    VAR(age): io.input "scrivi qui la tua eta' -> "
+    io.error ("la tua eta' e' " .. (age))
 }}
 
 

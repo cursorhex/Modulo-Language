@@ -261,12 +261,26 @@ const Parser = struct {
         defer loose_statements.deinit();
 
         var program_run: ?*Ast.ProgramRun = null;
+        var program_set: ?*Ast.ProgramSet = null;
 
         while (!self.isAtEnd()) {
             if (self.check(.Section)) {
                 try sections.append(try self.parseSection());
             } else if (self.check(.Program)) {
-                program_run = try self.parseProgramRun();
+                // Guarda avanti per vedere se è .run o .set
+                const saved = self.current;
+                _ = self.advance(); // program
+                _ = self.advance(); // dot
+
+                if (self.check(.Run)) {
+                    self.current = saved;
+                    program_run = try self.parseProgramRun();
+                } else if (self.check(.Set)) {
+                    self.current = saved;
+                    program_set = try self.parseProgramSet();
+                } else {
+                    return error.SyntaxError;
+                }
             } else {
                 try loose_statements.append(try self.parseStatement());
             }
@@ -276,6 +290,7 @@ const Parser = struct {
             .sections = try sections.toOwnedSlice(),
             .loose_statements = try loose_statements.toOwnedSlice(),
             .program_run = program_run,
+            .program_set = program_set, // ← nuovo
         };
     }
 
@@ -532,6 +547,100 @@ const Parser = struct {
         return expr;
     }
 
+    fn parseProgramSet(self: *Parser) ParseError!*Ast.ProgramSet {
+        try self.consume(.Program);
+        try self.consume(.Dot);
+        try self.consume(.Set);
+        try self.consume(.LBracket);
+
+        var prog_set = Ast.ProgramSet{};
+
+        const StringArrayList = @import("custom_array_list.zig").CustomArrayList([]const u8);
+
+        while (!self.check(.RBracket)) {
+            if (self.check(.Identifier)) {
+                const key = self.advance().text;
+                try self.consume(.Colon);
+
+                if (std.mem.eql(u8, key, "name")) {
+                    try self.consume(.String);
+                    prog_set.name = self.previous().text;
+                } else if (std.mem.eql(u8, key, "author")) {
+                    try self.consume(.LBrace);
+                    var authors = StringArrayList.init(self.allocator);
+                    defer authors.deinit();
+
+                    while (!self.check(.RBrace)) {
+                        try self.consume(.String);
+                        try authors.append(self.previous().text);
+                        _ = self.match(.{.Comma});
+                    }
+                    try self.consume(.RBrace);
+                    prog_set.authors = try authors.toOwnedSlice();
+                } else if (std.mem.eql(u8, key, "version")) {
+                    try self.consume(.LBrace);
+
+                    while (!self.check(.RBrace)) {
+                        // ❌ Questo fallisce se 'debug' è una keyword
+                        // try self.consume(.Identifier);
+
+                        // ✅ Fix: accetta Identifier O controlla il testo corrente
+                        if (!self.check(.Identifier)) {
+                            // Se non è Identifier, potrebbe essere una keyword usata come chiave
+                            // Accetta qualsiasi token e prendi il testo
+                        }
+                        const ver_key = self.advance().text; // Prendi qualsiasi token
+
+                        try self.consume(.Colon);
+                        try self.consume(.String);
+                        const ver_val = self.previous().text;
+
+                        if (std.mem.eql(u8, ver_key, "debug")) {
+                            prog_set.version_debug = ver_val;
+                        } else if (std.mem.eql(u8, ver_key, "release")) {
+                            prog_set.version_release = ver_val;
+                        }
+
+                        _ = self.match(.{.Comma});
+                    }
+                    try self.consume(.RBrace);
+                } else if (std.mem.eql(u8, key, "description")) {
+                    try self.consume(.String);
+                    prog_set.description = self.previous().text;
+                } else if (std.mem.eql(u8, key, "license")) {
+                    try self.consume(.String);
+                    prog_set.license = self.previous().text;
+                } else if (std.mem.eql(u8, key, "homepage")) {
+                    try self.consume(.String);
+                    prog_set.homepage = self.previous().text;
+                } else if (std.mem.eql(u8, key, "created")) {
+                    try self.consume(.String);
+                    prog_set.created = self.previous().text;
+                } else if (std.mem.eql(u8, key, "tags")) {
+                    try self.consume(.LBrace);
+                    var tags = StringArrayList.init(self.allocator);
+                    defer tags.deinit();
+
+                    while (!self.check(.RBrace)) {
+                        try self.consume(.String);
+                        try tags.append(self.previous().text);
+                        _ = self.match(.{.Comma});
+                    }
+                    try self.consume(.RBrace);
+                    prog_set.tags = try tags.toOwnedSlice();
+                }
+            }
+
+            _ = self.match(.{.Comma});
+        }
+
+        try self.consume(.RBracket);
+
+        const set = try self.allocator.create(Ast.ProgramSet);
+        set.* = prog_set;
+        return set;
+    }
+
     fn parsePrimary(self: *Parser) ParseError!*Ast.Expr {
         if (self.match(.{.Number})) {
             const token = self.previous();
@@ -556,23 +665,41 @@ const Parser = struct {
             const saved_pos = self.current;
             _ = self.advance();
 
-            if (self.check(.Identifier)) {
-                const id_token = self.peek();
-                _ = self.advance();
+            // Accetta sia Identifier che Program keyword
+            if (self.match(.{.Identifier}) or self.match(.{.Program})) {
+                const token = self.previous();
 
-                if (self.match(.{.RParen})) {
-                    if (self.match(.{.PlusPlus})) {
-                        const var_expr = try self.allocator.create(Ast.Expr);
-                        var_expr.* = .{ .Var = id_token.text };
-                        const inc_expr = try self.allocator.create(Ast.Expr);
-                        inc_expr.* = .{ .Increment = var_expr };
-                        return inc_expr;
-                    } else {
-                        const expr = try self.allocator.create(Ast.Expr);
-                        expr.* = .{ .Var = id_token.text };
-                        return expr;
+                //std.debug.print("DEBUG parsePrimary: Token '{s}'\n", .{token.text});
+
+                if (std.mem.eql(u8, token.text, "program") and self.check(.Dot)) {
+                    const StringArrayList = @import("custom_array_list.zig").CustomArrayList([]const u8);
+                    var path_parts = StringArrayList.init(self.allocator);
+                    defer path_parts.deinit();
+
+                    try path_parts.append("program");
+
+                    while (self.match(.{.Dot})) {
+                        if (self.isAtEnd()) {
+                            return error.ExpectedExpression;
+                        }
+                        const part_tok = self.advance();
+                        try path_parts.append(part_tok.text);
                     }
+
+                    try self.consume(.RParen);
+
+                    const full_path = try std.mem.join(self.allocator, ".", path_parts.items);
+
+                    const expr = try self.allocator.create(Ast.Expr);
+                    expr.* = .{ .Var = full_path };
+                    return expr;
                 }
+
+                try self.consume(.RParen);
+
+                const expr = try self.allocator.create(Ast.Expr);
+                expr.* = .{ .Var = token.text };
+                return expr;
             }
 
             self.current = saved_pos;
@@ -652,8 +779,33 @@ const Parser = struct {
             return call_expr;
         }
 
-        if (self.match(.{.Identifier})) {
+        // Accetta sia Identifier che Program keyword (fuori da parentesi)
+        if (self.match(.{.Identifier}) or self.match(.{.Program})) {
             const token = self.previous();
+
+            // Se è 'program' e seguito da dot, costruisci il path
+            if (std.mem.eql(u8, token.text, "program") and self.check(.Dot)) {
+                const StringArrayList = @import("custom_array_list.zig").CustomArrayList([]const u8);
+                var path_parts = StringArrayList.init(self.allocator);
+                defer path_parts.deinit();
+
+                try path_parts.append("program");
+
+                while (self.match(.{.Dot})) {
+                    if (self.isAtEnd()) {
+                        return error.ExpectedExpression;
+                    }
+                    const part_tok = self.advance();
+                    try path_parts.append(part_tok.text);
+                }
+
+                const full_path = try std.mem.join(self.allocator, ".", path_parts.items);
+
+                const expr = try self.allocator.create(Ast.Expr);
+                expr.* = .{ .Var = full_path };
+                return expr;
+            }
+
             const expr = try self.allocator.create(Ast.Expr);
             expr.* = .{ .Var = token.text };
             return expr;

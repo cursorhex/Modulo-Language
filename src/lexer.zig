@@ -57,6 +57,7 @@ pub const TokenType = enum {
     LessEq, // <=
     Arrow, // =>
     Choose,
+    Set,
     Eof,
 };
 
@@ -240,6 +241,8 @@ pub fn lex(src: []const u8, allocator: std.mem.Allocator) ![]Token {
                         TokenType.Else
                     else if (std.mem.eql(u8, word, "choose"))
                         TokenType.Choose
+                    else if (std.mem.eql(u8, word, "set"))
+                        TokenType.Set
                     else
                         TokenType.Identifier;
                     try tokens.append(.{ .t = tok, .text = word });
