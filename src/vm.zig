@@ -519,6 +519,71 @@ pub fn evaluateExpr(env: *Environment, expr: *Ast.Expr) InterpreterError!Value {
             const right = try evaluateExpr(env, bin.right);
             return .{ .Int = @divTrunc(left.Int, right.Int) };
         },
+
+        // ✅ AGGIUNGI QUESTO CASE per gestire io.print, io.warn, io.input ecc.
+        .Call => |call_expr| {
+            const arg = try evaluateExpr(env, call_expr.argument);
+
+            var buf: [256]u8 = undefined;
+            const call_name = if (call_expr.type_hint.len == 0)
+                std.fmt.bufPrint(buf[0..], "{s}.{s}", .{
+                    call_expr.library,
+                    call_expr.function,
+                }) catch "unknown"
+            else
+                std.fmt.bufPrint(buf[0..], "{s}.{s}:{s}", .{
+                    call_expr.library,
+                    call_expr.function,
+                    call_expr.type_hint,
+                }) catch "unknown";
+
+            var base_name = call_name;
+            var type_hint: []const u8 = "";
+            if (std.mem.indexOfScalar(u8, call_name, ':')) |idx| {
+                base_name = call_name[0..idx];
+                type_hint = call_name[idx + 1 ..];
+            }
+
+            if (std.mem.eql(u8, base_name, "io.print")) {
+                switch (arg) {
+                    .Int => |val| std.debug.print("{d}\n", .{val}),
+                    .Str => |s| std.debug.print("{s}\n", .{s}),
+                }
+                return .{ .Int = 0 };
+            } else if (std.mem.eql(u8, base_name, "io.warn")) {
+                std.debug.print("{s}", .{YELLOW});
+                switch (arg) {
+                    .Int => |val| std.debug.print("{d}", .{val}),
+                    .Str => |s| std.debug.print("{s}", .{s}),
+                }
+                std.debug.print("{s}\n", .{RESET});
+                return .{ .Int = 0 };
+            } else if (std.mem.eql(u8, base_name, "io.input")) {
+                var placeholder_buf: [256]u8 = undefined;
+                const placeholder: []const u8 = switch (arg) {
+                    .Str => |s| s,
+                    .Int => |val| std.fmt.bufPrint(&placeholder_buf, "{d}", .{val}) catch "input",
+                };
+                std.debug.print("{s}", .{placeholder});
+
+                var stdin_buffer: [512]u8 = undefined;
+                var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+                const stdin_interface = &stdin_reader.interface;
+
+                const line = stdin_interface.takeDelimiterExclusive('\n') catch null;
+
+                const len: usize = if (line) |l| l.len else 0;
+                const alloc_line = try env.allocator.alloc(u8, len);
+                if (line) |l| @memcpy(alloc_line, l);
+
+                try env.temp_allocations.append(alloc_line);
+
+                return .{ .Str = alloc_line };
+            }
+
+            return .{ .Int = 0 };
+        },
+
         .FunctionCall => |call| {
             const func = findFunction(env, call.name) orelse return error.FunctionNotFound;
 
@@ -536,7 +601,7 @@ pub fn evaluateExpr(env: *Environment, expr: *Ast.Expr) InterpreterError!Value {
             const input = try evaluateExpr(env, pcall.input);
             return try executePipeline(env, pipeline, input);
         },
-        .Concat => |bin| { // ✅ QUI è corretto (dentro evaluateExpr)
+        .Concat => |bin| {
             const left = try evaluateExpr(env, bin.left);
             const right = try evaluateExpr(env, bin.right);
 

@@ -78,14 +78,17 @@ section New {{
         var(result): ((x) + 10)
         return (result)
     }
-    //fun Printo {
-    //    print.io as txt "ciaooo"
-    //}
+    fun Printo() {
+        io.print("ciao")
+        io.print ("fasu")
+    }
     
     var(test): Add10(5)
     
     io.print (test)  // Output: 15
-    //Printo()
+    Printo()
+    Printo()
+    bytecode "070400746573740e0800696f2e7072696e74" // printa 15
 }}
 
 
