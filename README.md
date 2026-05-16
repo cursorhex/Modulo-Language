@@ -7,14 +7,12 @@
 </h1>
 
 This new language sucks and sucks. Its called Modulo bc of its "SECTIONS" thing, check it out pls.
-Yea, half of this is AI generated i think. Still in dev
+Actually used as a test case for Claude 4.5
 > the name actually sucks? Please tell me.
-> If you want to ragebait me bc its AI made you are right.
-> Im learning ZIG but im soooo lazy to do this from scratch, so welcome Claude!
-> Yea, my ZIG experience is like 1 week (;
+
 > The entire README is written in italian, bc i am italian, so just traduce it.
 
-Un linguaggio di programmazione moderno con sezioni modulari e variabili tipizzate (non penso proprio).
+Un linguaggio di programmazione moderno con sezioni modulari e variabili tipizzate.
 
 ## Indice
 - [Quick Start](#quick-start)
